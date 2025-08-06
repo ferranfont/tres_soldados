@@ -5,7 +5,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
 def plot_close_and_volume(symbol, timeframe, df):
-    html_path = f'charts/close_vol_chart_{symbol}_{timeframe}.html'
+    html_path = f'charts/candle_vol_chart_{symbol}_{timeframe}.html'
     os.makedirs(os.path.dirname(html_path), exist_ok=True)
 
     df = df.rename(columns=str.lower)
@@ -15,20 +15,24 @@ def plot_close_and_volume(symbol, timeframe, df):
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
-        row_heights=[0.80, 0.20],
-        vertical_spacing=0.03,
+        row_heights=[0.8, 0.2],
+        vertical_spacing=0.03
     )
 
-    # Traza de precio (línea de cierre)
-    fig.add_trace(go.Scatter(
+    # ✅ SOLO EN FILA 1: Candlestick
+    fig.add_trace(go.Candlestick(
         x=df['date'],
-        y=df['close'],
-        mode='lines',
-        line=dict(color='blue', width=1.5),
-        name='Close'
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        name='Candlestick',
+        increasing=dict(line=dict(color='#696969', width=1), fillcolor='#00FF00'),
+        decreasing=dict(line=dict(color='black', width=1), fillcolor='red')
     ), row=1, col=1)
 
-    # Barras de volumen
+
+    # ✅ SOLO EN FILA 2: Volumen (NO velas)
     fig.add_trace(go.Bar(
         x=df['date'],
         y=df['volume'],
@@ -36,14 +40,13 @@ def plot_close_and_volume(symbol, timeframe, df):
         marker_line_color='blue',
         marker_line_width=0.4,
         opacity=0.95,
-        name='Volumen'
+        name='Volume'
     ), row=2, col=1)
 
     fig.update_layout(
-        dragmode='pan',
         title=f'{symbol}_{timeframe}',
-        width=1500,
-        height=700,
+        width=1800,
+        height=800,
         margin=dict(l=20, r=20, t=40, b=20),
         font=dict(size=12, color="black"),
         plot_bgcolor='rgba(255,255,255,0.05)',
@@ -56,8 +59,7 @@ def plot_close_and_volume(symbol, timeframe, df):
             tickangle=0,
             showgrid=False,
             linecolor='gray',
-            linewidth=1,
-            range=[df['date'].min(), df['date'].max()]
+            linewidth=1
         ),
         yaxis=dict(showgrid=True, linecolor='gray', linewidth=1),
         xaxis2=dict(
@@ -66,14 +68,13 @@ def plot_close_and_volume(symbol, timeframe, df):
             tickangle=45,
             showgrid=False,
             linecolor='gray',
-            linewidth=1,
-            range=[df['date'].min(), df['date'].max()]
+            linewidth=1
         ),
         yaxis2=dict(showgrid=True, linecolor='grey', linewidth=1),
-        # shapes=shapes
+        xaxis_rangeslider_visible=False,
+        xaxis2_matches=None,
     )
 
     fig.write_html(html_path, config={"scrollZoom": True})
-    print(f"✅ Gráfico Plotly guardado como HTML: '{html_path}'")
-
+    print(f"✅ Gráfico guardado como HTML: '{html_path}'")
     webbrowser.open('file://' + os.path.realpath(html_path))
