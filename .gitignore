@@ -1,0 +1,31 @@
+# Never upload environment files
+.env
+
+# Ignorar archivos de datos
+*.csv
+*.tsv
+*.json
+*.xml
+*.xlsx
+*.xls
+*.sav
+*.parquet
+*.feather
+
+# Ignorar archivos HTML u otros outputs
+*.html
+*.pdf
+*.docx
+*.pptx
+
+# Ignorar archivos generados por Jupyter o Python
+*.ipynb_checkpoints
+*.pyc
+__pycache__/
+
+# Ignorar carpetas específicas
+data/
+output/
+results/
+temp/
+

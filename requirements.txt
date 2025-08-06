@@ -1,0 +1,10 @@
+pandas
+python-dotenv
+plotly
+matplotlib
+requests    
+numpy
+webbrowser
+numpy
+os
+ta
