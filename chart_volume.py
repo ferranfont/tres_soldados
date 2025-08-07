@@ -31,6 +31,22 @@ def plot_close_and_volume(symbol, timeframe, df):
         decreasing=dict(line=dict(color='black', width=1), fillcolor='red')
     ), row=1, col=1)
 
+    # Añadir círculo en la vela donde se detecta patrón "Three Soldiers"
+    if 'three_soldiers' in df.columns:
+        soldiers = df[df['three_soldiers'] == True]
+        fig.add_trace(go.Scatter(
+            x=soldiers['date'],
+            y=soldiers['high'] + 1,  # un poco por encima del máximo de la vela
+            mode='markers',
+            marker=dict(
+                symbol='circle',
+                size=12,
+                color='orange',
+                line=dict(color='black', width=1)
+            ),
+            name='Three Soldiers'
+        ), row=1, col=1)
+
 
     # ✅ SOLO EN FILA 2: Volumen (NO velas)
     fig.add_trace(go.Bar(

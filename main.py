@@ -2,6 +2,7 @@
 import pandas as pd
 import os
 from chart_volume import plot_close_and_volume
+from strat_OM.find_three_soldiers import find_three_soldiers
 
 
 symbol = 'ES'
@@ -10,7 +11,8 @@ symbol = 'ES'
 # 📥 CARGA DE DATOS
 # ====================================================
 directorio = '../DATA'
-nombre_fichero = 'export_es_2015_formatted.csv'
+nombre_fichero = 'export_es_2015_formatted.csv'        # vela diaria
+#nombre_fichero = 'ES_2015_2024_5min_timeframe.csv'
 ruta_completa = os.path.join(directorio, nombre_fichero)
 
 print("\n======================== 🔍 df  ===========================")
@@ -25,9 +27,12 @@ df = df.rename(columns={'volumen': 'volume'})
 # Asegurar formato datetime con zona UTC
 df['date'] = pd.to_datetime(df['date'], utc=True)
 df = df.set_index('date')
+#df = df.loc['2021']
+
+
 
 # 🔁 Resample a velas diarias
-df_daily = df.resample('1D').agg({
+df = df.resample('1D').agg({
     'open': 'first',
     'high': 'max',
     'low': 'min',
@@ -35,11 +40,29 @@ df_daily = df.resample('1D').agg({
     'volume': 'sum'
 }).dropna()
 
+
 # Reset index para usar 'date' como columna
-df_daily = df_daily.reset_index()
+df = df.reset_index()
 
-print(df_daily.head())
 
+
+
+# ====================================================
+# 🔍 QUANT FIND THREE SOLDIERS
+# ====================================================
+df = find_three_soldiers(df)
+print(df.head())
+print(df.loc[df['three_soldiers'] == True])
+print ('número de señales encontradas:', len(df.loc[df['three_soldiers'] == True]))
+
+# ====================================================
+# 📊 CARGA DE DATOS
+# ====================================================
 # Ejecutar gráfico
+
+
+df.loc['2020-04-30':'2020-08-22']
+
+
 timeframe = '1D'
-plot_close_and_volume(symbol, timeframe, df_daily)
+plot_close_and_volume(symbol, timeframe, df)
