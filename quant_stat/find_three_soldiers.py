@@ -1,15 +1,15 @@
 def find_three_soldiers(df):
     """
     Detecta el patrón 'Three White Soldiers' en un DataFrame OHLCV.
-    Añade una columna 'three_soldiers' con True si el patrón se detecta, False en caso contrario.
+    Añade una columna 'tres_soldados' con True si el patrón se detecta, False en caso contrario.
     """
     df = df.copy()
-    df['three_soldiers'] = False
+    df['tres_soldados'] = False
 
     for i in range(2, len(df)):
-        o1, c1, h1, l1 = df.loc[i-2, ['open', 'close', 'high', 'low']]
-        o2, c2, h2, l2 = df.loc[i-1, ['open', 'close', 'high', 'low']]
-        o3, c3, h3, l3 = df.loc[i,   ['open', 'close', 'high', 'low']]
+        o1, c1, h1, l1 = df.iloc[i-2][['open', 'close', 'high', 'low']]
+        o2, c2, h2, l2 = df.iloc[i-1][['open', 'close', 'high', 'low']]
+        o3, c3, h3, l3 = df.iloc[i][['open', 'close', 'high', 'low']]
 
         # Condiciones para que cada vela sea de cuerpo dominante (mínima sombra)
         long1 = c1 > o1 and (c1 - o1) > 0.7 * (h1 - l1)
@@ -25,6 +25,6 @@ def find_three_soldiers(df):
         higher2 = c3 > c2
 
         if long1 and long2 and long3 and inside1 and inside2 and higher1 and higher2:
-            df.loc[i, 'three_soldiers'] = True
+            df.iloc[i, df.columns.get_loc('tres_soldados')] = True
 
     return df

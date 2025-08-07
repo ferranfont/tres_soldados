@@ -1,68 +1,77 @@
 # main.py
 import pandas as pd
 import os
+import ta
 from chart_volume import plot_close_and_volume
-from strat_OM.find_three_soldiers import find_three_soldiers
-
+from quant_stat.serpiente import detectar_mechas_opuestas
+from quant_stat.find_three_soldiers import find_three_soldiers
 
 symbol = 'ES'
+timeframe = '15min'
 
 # ====================================================
-# 📥 CARGA DE DATOS
+# 📥 CARGA DE DATOS YA FORMATEADOS
 # ====================================================
 directorio = '../DATA'
-nombre_fichero = 'export_es_2015_formatted.csv'        # vela diaria
-#nombre_fichero = 'ES_2015_2024_5min_timeframe.csv'
+nombre_fichero = 'export_es_SOLO_2020_formatted_15_min.csv'
 ruta_completa = os.path.join(directorio, nombre_fichero)
 
-print("\n======================== 🔍 df  ===========================")
-df = pd.read_csv(ruta_completa)
-print('Fichero:', ruta_completa, 'importado')
-print(f"Características del Fichero Base: {df.shape}")
+print("\n====== 🔍 Cargando DataFrame Formateado ========")
+df = pd.read_csv(ruta_completa, parse_dates=['date'])
+df = df.set_index('date')  # opcional, si prefieres trabajar con índice temporal
+#df = df[df['volume'] > 0]  # elimina los huecos que genera el resample sin datos en el mercado
+df = df[df.index.dayofweek < 5]  # 0 = lunes, 6 = domingo, limina los huecos que genera el resample sin datos en el mercado
 
-# Normalizar columnas a minúsculas y renombrar 'volumen' a 'volume'
-df.columns = [col.strip().lower() for col in df.columns]
-df = df.rename(columns={'volumen': 'volume'})
-
-# Asegurar formato datetime con zona UTC
-df['date'] = pd.to_datetime(df['date'], utc=True)
-df = df.set_index('date')
-#df = df.loc['2021']
-
-
-
-# 🔁 Resample a velas diarias
-df = df.resample('1D').agg({
-    'open': 'first',
-    'high': 'max',
-    'low': 'min',
-    'close': 'last',
-    'volume': 'sum'
-}).dropna()
-
-
-# Reset index para usar 'date' como columna
-df = df.reset_index()
-
-
-
+print(f"✅ Fichero importado: {ruta_completa}")
+print(f"📊 Dimensiones: {df.shape}")
 
 # ====================================================
-# 🔍 QUANT FIND THREE SOLDIERS
+# 🔍 DETECCIÓN DE SEÑALES
 # ====================================================
+
+# --- 1. Aplicar detección sobre TODO el DataFrame ---
 df = find_three_soldiers(df)
-print(df.head())
-print(df.loc[df['three_soldiers'] == True])
-print ('número de señales encontradas:', len(df.loc[df['three_soldiers'] == True]))
+
+# --- 2. Filtrar solo lo que deseas ver ---
+# Asegurar que 'date' esté como columna primero
+if 'date' not in df.columns:
+    df = df.reset_index()
+
+# Ahora puedes recortar por fechas con .loc
+df = df.set_index('date').loc['2020-06-30':'2020-08-22'].reset_index()
+
+# --- 3. Mostrar resultados SOLO en ese rango ---
+print(df[df['tres_soldados'] == True])
+print('número de señales en el rango: ', len(df[df['tres_soldados'] == True]),'\n')
+
 
 # ====================================================
-# 📊 CARGA DE DATOS
+# 🔍 DETECCIÓN DE SEÑALES
 # ====================================================
-# Ejecutar gráfico
+# Asumiendo que 'df' tiene columnas: open, high, low, close
+atr = ta.volatility.AverageTrueRange(
+    high=df['high'],
+    low=df['low'],
+    close=df['close'],
+    window=14
+)
+df['atr'] = atr.average_true_range()
+print(df.head(30))
 
+# ====================================================
+# 🔍 DETECCIÓN DE SERPIENTE
+# ====================================================
+serpiente_raw = detectar_mechas_opuestas(df, n=2, ratio_mecha=2.5, f=1.5)
 
-df.loc['2020-04-30':'2020-08-22']
+serpiente = pd.DataFrame(serpiente_raw, columns=[
+    'golpe', 'fecha_golpe', 'close_golpe',
+    'latigo', 'fecha_latigo', 'close_latigo',
+    'distancia_velas'
+])
+print(serpiente.head())
 
+# ====================================================
+# 📊 GRAFICO
+# ====================================================
 
-timeframe = '1D'
-plot_close_and_volume(symbol, timeframe, df)
+plot_close_and_volume(symbol, timeframe, df, serpiente)

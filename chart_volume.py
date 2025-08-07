@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
-def plot_close_and_volume(symbol, timeframe, df):
+def plot_close_and_volume(symbol, timeframe, df, serpiente):
     html_path = f'charts/candle_vol_chart_{symbol}_{timeframe}.html'
     os.makedirs(os.path.dirname(html_path), exist_ok=True)
 
@@ -32,8 +32,8 @@ def plot_close_and_volume(symbol, timeframe, df):
     ), row=1, col=1)
 
     # Añadir círculo en la vela donde se detecta patrón "Three Soldiers"
-    if 'three_soldiers' in df.columns:
-        soldiers = df[df['three_soldiers'] == True]
+    if 'tres_soldados' in df.columns:
+        soldiers = df[df['tres_soldados'] == True]
         fig.add_trace(go.Scatter(
             x=soldiers['date'],
             y=soldiers['high'] + 1,  # un poco por encima del máximo de la vela
@@ -44,7 +44,7 @@ def plot_close_and_volume(symbol, timeframe, df):
                 color='orange',
                 line=dict(color='black', width=1)
             ),
-            name='Three Soldiers'
+            name='tres_soldados'
         ), row=1, col=1)
 
 
@@ -58,6 +58,30 @@ def plot_close_and_volume(symbol, timeframe, df):
         opacity=0.95,
         name='Volume'
     ), row=2, col=1)
+
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+
+    # Si has calculado 'serpiente' antes de llamar a esta función
+    if 'serpiente' in locals() or 'serpiente' in globals():
+        if not serpiente.empty:
+            # Asegura que no haya duplicados
+            latigos = serpiente['latigo'].unique()
+            puntos = df.iloc[latigos].copy()
+
+            # Añadir puntos verdes encima del precio
+            fig.add_trace(go.Scatter(
+                x=puntos['date'],
+                y=puntos['high'] + 0.25,  # un pequeño offset encima de la mecha superior
+                mode='markers',
+                marker=dict(
+                    symbol='circle',
+                    size=10,
+                    color='green',
+                    line=dict(color='black', width=1)
+                ),
+                name='Serpiente Latigo'
+            ), row=1, col=1)
+
 
     fig.update_layout(
         title=f'{symbol}_{timeframe}',
