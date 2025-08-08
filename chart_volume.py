@@ -12,14 +12,17 @@ def plot_close_and_volume(symbol, timeframe, df, serpiente):
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date')
 
+    # ⬇️ secondary_y=True SOLO en la fila 1
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
         row_heights=[0.8, 0.2],
-        vertical_spacing=0.03
+        vertical_spacing=0.03,
+        specs=[[{"secondary_y": True}],
+               [{"secondary_y": False}]]
     )
 
-    # ✅ SOLO EN FILA 1: Candlestick
+    # ✅ FILA 1: Candlestick (eje izquierdo)
     fig.add_trace(go.Candlestick(
         x=df['date'],
         open=df['open'],
@@ -29,26 +32,41 @@ def plot_close_and_volume(symbol, timeframe, df, serpiente):
         name='Candlestick',
         increasing=dict(line=dict(color='#696969', width=1), fillcolor='#00FF00'),
         decreasing=dict(line=dict(color='black', width=1), fillcolor='red')
-    ), row=1, col=1)
+    ), row=1, col=1, secondary_y=False)
 
-    # Añadir círculo en la vela donde se detecta patrón "Three Soldiers"
+    # 🔵 ATR y ATR fast en el EJE DERECHO de la fila 1
+    if 'atr' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['date'],
+            y=df['atr'],
+            mode='lines',
+            name='ATR (14)',
+            line=dict(width=2)
+        ), row=1, col=1, secondary_y=True)
+
+    if 'atr_fast' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['date'],
+            y=df['atr_fast'],
+            mode='lines',
+            name='ATR fast (5)',
+            line=dict(width=1.5, dash='solid')
+        ), row=1, col=1, secondary_y=True)
+
+    # 🔶 Señales "Three Soldiers"
     if 'tres_soldados' in df.columns:
         soldiers = df[df['tres_soldados'] == True]
-        fig.add_trace(go.Scatter(
-            x=soldiers['date'],
-            y=soldiers['high'] + 1,  # un poco por encima del máximo de la vela
-            mode='markers',
-            marker=dict(
-                symbol='circle',
-                size=12,
-                color='orange',
-                line=dict(color='black', width=1)
-            ),
-            name='tres_soldados'
-        ), row=1, col=1)
+        if not soldiers.empty:
+            fig.add_trace(go.Scatter(
+                x=soldiers['date'],
+                y=soldiers['high'] + 1,
+                mode='markers',
+                marker=dict(symbol='circle', size=12, color='orange',
+                            line=dict(color='black', width=1)),
+                name='tres_soldados'
+            ), row=1, col=1, secondary_y=False)
 
-
-    # ✅ SOLO EN FILA 2: Volumen (NO velas)
+    # ✅ FILA 2: Volumen
     fig.add_trace(go.Bar(
         x=df['date'],
         y=df['volume'],
@@ -59,29 +77,28 @@ def plot_close_and_volume(symbol, timeframe, df, serpiente):
         name='Volume'
     ), row=2, col=1)
 
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-
-    # Si has calculado 'serpiente' antes de llamar a esta función
-    if 'serpiente' in locals() or 'serpiente' in globals():
-        if not serpiente.empty:
-            # Asegura que no haya duplicados
-            latigos = serpiente['latigo'].unique()
+    # 🟢 Puntos "Serpiente Látigo" (si existen índices válidos)
+    if serpiente is not None and not serpiente.empty and 'latigo' in serpiente.columns:
+        latigos = serpiente['latigo'].dropna().astype(int).unique()
+        latigos = latigos[(latigos >= 0) & (latigos < len(df))]
+        if len(latigos) > 0:
             puntos = df.iloc[latigos].copy()
-
-            # Añadir puntos verdes encima del precio
             fig.add_trace(go.Scatter(
                 x=puntos['date'],
-                y=puntos['high'] + 0.25,  # un pequeño offset encima de la mecha superior
+                y=puntos['high'] + 0.25,
                 mode='markers',
-                marker=dict(
-                    symbol='circle',
-                    size=10,
-                    color='green',
-                    line=dict(color='black', width=1)
-                ),
+                marker=dict(symbol='circle', size=10, color='green',
+                            line=dict(color='black', width=1)),
                 name='Serpiente Latigo'
-            ), row=1, col=1)
+            ), row=1, col=1, secondary_y=False)
 
+    # --- Ejes y layout limpios usando update_*axes por fila/columna ---
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=1, col=1)
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=2, col=1)
+
+    fig.update_yaxes(title_text="Precio", row=1, col=1, secondary_y=False, showgrid=True)
+    fig.update_yaxes(title_text="ATR / ATR fast", row=1, col=1, secondary_y=True, showgrid=False)
+    fig.update_yaxes(title_text="Volumen", row=2, col=1, showgrid=True)
 
     fig.update_layout(
         title=f'{symbol}_{timeframe}',
@@ -91,28 +108,9 @@ def plot_close_and_volume(symbol, timeframe, df, serpiente):
         font=dict(size=12, color="black"),
         plot_bgcolor='rgba(255,255,255,0.05)',
         paper_bgcolor='rgba(240,240,240,0.1)',
-        showlegend=False,
+        showlegend=True,             # <- muestra leyenda para distinguir ATRs
         template='plotly_white',
-        xaxis=dict(
-            type='date',
-            tickformat="%b %d<br>%Y",
-            tickangle=0,
-            showgrid=False,
-            linecolor='gray',
-            linewidth=1
-        ),
-        yaxis=dict(showgrid=True, linecolor='gray', linewidth=1),
-        xaxis2=dict(
-            type='date',
-            tickformat="%b %d<br>%Y",
-            tickangle=45,
-            showgrid=False,
-            linecolor='gray',
-            linewidth=1
-        ),
-        yaxis2=dict(showgrid=True, linecolor='grey', linewidth=1),
-        xaxis_rangeslider_visible=False,
-        xaxis2_matches=None,
+        xaxis_rangeslider_visible=False
     )
 
     fig.write_html(html_path, config={"scrollZoom": True})

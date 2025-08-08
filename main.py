@@ -13,7 +13,8 @@ timeframe = '15min'
 # 📥 CARGA DE DATOS YA FORMATEADOS
 # ====================================================
 directorio = '../DATA'
-nombre_fichero = 'export_es_SOLO_2020_formatted_15_min.csv'
+nombre_fichero = 'ES_near_tick_data_27_jul_2025.csv'
+#nombre_fichero = 'export_es_SOLO_2020_formatted_15_min.csv'
 ruta_completa = os.path.join(directorio, nombre_fichero)
 
 print("\n====== 🔍 Cargando DataFrame Formateado ========")
@@ -55,7 +56,15 @@ atr = ta.volatility.AverageTrueRange(
     close=df['close'],
     window=14
 )
+
+atr_fast = ta.volatility.AverageTrueRange(
+    high=df['high'],
+    low=df['low'],
+    close=df['close'],
+    window=5
+)
 df['atr'] = atr.average_true_range()
+df['atr_fast'] = atr_fast.average_true_range()
 print(df.head(30))
 
 # ====================================================
@@ -73,5 +82,6 @@ print(serpiente.head())
 # ====================================================
 # 📊 GRAFICO
 # ====================================================
+
 
 plot_close_and_volume(symbol, timeframe, df, serpiente)
