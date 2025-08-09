@@ -8,13 +8,13 @@ from chart_ticks import plot_high_low_with_whipsaw, plot_close_line
 
 # ==== PARÁMETROS FINALES WHIPSAW (optimizados) ====
 WHIPSAW_PARAMS = dict(
-    n_trend=10,                        # Nº mínimo de velas para considerar una tendencia antes del latigazo
-    slope_min=2.6337448559670783e-05,  # Pendiente mínima (normalizada si use_slope_norm=True) para aceptar que hubo tendencia
-    n_atr=10,                          # Periodo para cálculo de ATR (volatilidad)
-    w=19,                              # Ventana (en velas) para buscar el rebote después de la caída/subida
+    n_trend=30,                        # Nº mínimo de velas para considerar una tendencia antes del latigazo
+    slope_min = 1.9e-05,   # más laxo, más señales     #2.6337448559670783e-05,  # Pendiente mínima (normalizada si use_slope_norm=True) para aceptar que hubo tendencia
+    n_atr=14,                          # Periodo para cálculo de ATR (volatilidad)
+    w=40,                              # Ventana (en velas) para buscar el rebote después de la caída/subida
     k1_drop=0.75,                      # Múltiplo de ATR para definir la caída mínima tras una tendencia alcista (whip_after_up)
     k2_bounce=0.8,                     # Múltiplo de ATR para definir el rebote mínimo tras la caída (whip_after_up) o viceversa
-    min_gap=20,                        # Nº mínimo de velas entre dos señales para evitar racimos
+    min_gap=100,                        # Nº mínimo de velas entre dos señales para evitar racimos
     use_slope_norm=True                # True = pendiente normalizada por el precio medio (mejor para comparar distintos activos)
 )
 
@@ -43,7 +43,35 @@ def preparar_df_simple(df_crudo: pd.DataFrame) -> pd.DataFrame:
         df[c] = _to_float(df[c])
     return df.dropna(subset=['date','open','high','low','close']).set_index('date').sort_index()
 
+
+
 df = preparar_df_simple(df_raw)   # índice = date
+
+
+# ===== 🔁 Resample por número de ticks (N filas por vela) =====
+N = 50  # <- ajusta a tu gusto
+
+dfr = df.reset_index().copy()      # ahora 'date' es columna
+dfr['block'] = np.floor(np.arange(len(dfr)) / N)
+
+df_resampled = (dfr.groupby('block', as_index=False)
+                  .agg({
+                      'date':   'first',
+                      'open':   'first',
+                      'high':   'max',
+                      'low':    'min',
+                      'close':  'last',
+                      'volume': 'sum'
+                  }))
+
+df_resampled = df_resampled.drop(columns='block').set_index('date').sort_index()
+
+# Reemplaza df por el agrupado para lo que sigue
+df = df_resampled
+# ==============================================================
+
+
+
 df_res = df.reset_index()         # columnas: date, open, high, low, close, volume
 
 # ==== 2) Detectar whipsaw con parámetros fijos ====
