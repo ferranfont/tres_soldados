@@ -13,15 +13,58 @@ MINUTE_DATA_FILE = 'es_1min_data_2015_2025.csv'
 
 
 
-def plot_minute_data(symbol, timeframe, df):
+def load_fractals_csv(fractal_csv_path):
+    """
+    Load fractals from CSV file
+    Returns DataFrame with fractals or None if file doesn't exist
+    """
+    if not os.path.exists(fractal_csv_path):
+        print(f"No fractals file found: {fractal_csv_path}")
+        return None
+
+    try:
+        df_fractals = pd.read_csv(fractal_csv_path)
+        df_fractals['timestamp'] = pd.to_datetime(df_fractals['timestamp'])
+        print(f"Loaded {len(df_fractals)} fractals from {os.path.basename(fractal_csv_path)}")
+        return df_fractals
+    except Exception as e:
+        print(f"Error loading fractals: {e}")
+        return None
+
+
+def plot_minute_data(symbol, timeframe, df, fractals_csv=None):
     """
     Función especializada para graficar datos de minutos con etiquetas de hora en el eje X
+
+    Args:
+        symbol: Trading symbol (e.g., 'ES')
+        timeframe: Timeframe string for chart title
+        df: DataFrame with OHLC data
+        fractals_csv: Optional path to fractals CSV file. If None, will try to auto-detect.
     """
     html_path = get_chart_path(symbol, timeframe)
 
     df = df.rename(columns=str.lower)
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date')
+
+    # Load fractals if CSV provided or try to auto-detect
+    df_fractals = None
+    if fractals_csv:
+        df_fractals = load_fractals_csv(fractals_csv)
+    else:
+        # Try to auto-detect fractals CSV based on timeframe
+        outputs_dir = 'outputs'
+        if os.path.exists(outputs_dir):
+            # Extract date from timeframe (e.g., '1min_2023_03_01' -> '2023_03_01')
+            date_part = timeframe.replace('1min_', '')
+            fractal_pattern = f'fractals_es_1min_data_{date_part}_zigzag_*.csv'
+            import glob
+            matching_files = glob.glob(os.path.join(outputs_dir, fractal_pattern))
+            if matching_files:
+                # Use most recent file if multiple matches
+                fractals_csv = max(matching_files, key=os.path.getctime)
+                df_fractals = load_fractals_csv(fractals_csv)
 
     fig = make_subplots(
         rows=2, cols=1,
@@ -37,13 +80,81 @@ def plot_minute_data(symbol, timeframe, df):
         high=df['high'],
         low=df['low'],
         close=df['close'],
-        increasing_line_color='rgba(0,0,0,0.95)',     # Outline negro con alpha 0.9 para velas alcistas
-        decreasing_line_color='rgba(0,0,0,0.95)',     # Outline negro con alpha 0.9 para velas bajistas
-        increasing_fillcolor='lime',                 # Relleno verde lima brillante para velas alcistas
-        decreasing_fillcolor='red',                  # Relleno rojo para velas bajistas
+        increasing_line_color='rgba(0,0,0,0.8)',     # Outline negro con alpha 0.8 para velas alcistas
+        decreasing_line_color='rgba(0,0,0,0.8)',     # Outline negro con alpha 0.8 para velas bajistas
+        increasing_fillcolor='rgba(0,255,0,0.8)',    # Relleno verde lima con alpha 0.8
+        decreasing_fillcolor='rgba(255,0,0,0.8)',    # Relleno rojo con alpha 0.8
         line=dict(width=1),
-        name='OHLC'
+        name='OHLC',
+        opacity=0.8
     ), row=1, col=1)
+
+    # Plot VWAP if present in dataframe
+    if 'ema' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['date'],
+            y=df['ema'],
+            mode='lines',
+            line=dict(color='rgba(255,0,255,0.6)', width=1),
+            name=f'VWAP',
+            showlegend=True
+        ), row=1, col=1)
+
+    # Plot fractals as blue dots and line
+    if df_fractals is not None and len(df_fractals) > 0:
+        # Plot blue line connecting all fractals
+        fig.add_trace(go.Scatter(
+            x=df_fractals['timestamp'],
+            y=df_fractals['price'],
+            mode='lines',
+            line=dict(
+                color='rgba(0,0,255,0.5)',
+                width=1
+            ),
+            name='Fractal Line',
+            hoverinfo='skip',
+            showlegend=False
+        ), row=1, col=1)
+
+        # Separate tops and bottoms
+        tops = df_fractals[df_fractals['type'] == 'TOP']
+        bottoms = df_fractals[df_fractals['type'] == 'BOTTOM']
+
+        # Plot TOPS as blue dots on highs
+        if len(tops) > 0:
+            fig.add_trace(go.Scatter(
+                x=tops['timestamp'],
+                y=tops['price'],
+                mode='markers',
+                marker=dict(
+                    color='blue',
+                    size=6,
+                    symbol='circle'
+                ),
+                name='Top Fractals',
+                customdata=tops['swing_size'],
+                hovertemplate='%{customdata}<br>Time: %{x}<br>Price: $%{y:.2f}<extra></extra>',
+                showlegend=False
+            ), row=1, col=1)
+
+        # Plot BOTTOMS as blue dots on lows
+        if len(bottoms) > 0:
+            fig.add_trace(go.Scatter(
+                x=bottoms['timestamp'],
+                y=bottoms['price'],
+                mode='markers',
+                marker=dict(
+                    color='blue',
+                    size=6,
+                    symbol='circle'
+                ),
+                name='Bottom Fractals',
+                customdata=bottoms['swing_size'],
+                hovertemplate='%{customdata}<br>Time: %{x}<br>Price: $%{y:.2f}<extra></extra>',
+                showlegend=False
+            ), row=1, col=1)
+
+        print(f"Plotted {len(df_fractals)} fractals ({len(tops)} tops, {len(bottoms)} bottoms)")
 
     # Barras de volumen
     fig.add_trace(go.Bar(

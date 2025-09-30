@@ -1,11 +1,12 @@
 # Este toma todo el universo de datos desde el 2015 al 2025 y extrae un día específico
-# Luego crea un CSV con los datos de ese día y usa plot_minute_data para graficar   
+# Luego crea un CSV con los datos de ese día y usa plot_minute_data para graficar
 # Cambiar la variable TARGET_DATE para extraer otro día
 
 import pandas as pd
 import os
 import sys
 from pathlib import Path
+import talib
 sys.path.append(str(Path(__file__).parent.parent))
 from config import DATA_DIR, SYMBOL
 from plot_minute_data import plot_minute_data
@@ -17,6 +18,9 @@ symbol = SYMBOL
 
 # Variable de fecha - cambiar esta fecha para extraer datos de otro día
 TARGET_DATE = '2023-03-01'  # Formato: YYYY-MM-DD
+
+# VWAP period configuration
+VWAP_PERIOD = 100  # 100-period VWAP moving average
 
 # ====================================================
 # 📥 CARGA DE DATOS
@@ -46,6 +50,30 @@ df_filtered = df[(df['date'] >= target_date_start) & (df['date'] < target_date_e
 print(f"Datos encontrados para {TARGET_DATE}: {len(df_filtered)} registros")
 
 if len(df_filtered) > 0:
+    # Calculate VWAP moving average
+    print(f"📊 Calculating VWAP MA({VWAP_PERIOD})...")
+
+    # Calculate typical price (HLC/3)
+    df_filtered['typical_price'] = (df_filtered['high'] + df_filtered['low'] + df_filtered['close']) / 3
+
+    # Calculate cumulative typical price * volume
+    df_filtered['tp_volume'] = df_filtered['typical_price'] * df_filtered['volume']
+
+    # Calculate rolling VWAP
+    df_filtered['vwap_cumsum'] = df_filtered['tp_volume'].rolling(window=VWAP_PERIOD).sum()
+    df_filtered['volume_cumsum'] = df_filtered['volume'].rolling(window=VWAP_PERIOD).sum()
+    df_filtered['ema'] = df_filtered['vwap_cumsum'] / df_filtered['volume_cumsum']
+
+    # Clean up temporary columns
+    df_filtered.drop(columns=['typical_price', 'tp_volume', 'vwap_cumsum', 'volume_cumsum'], inplace=True)
+
+    # Remove unnecessary columns from other projects
+    columns_to_remove = ['long_level', 'short_level', 'long_stop', 'short_stop']
+    existing_columns_to_remove = [col for col in columns_to_remove if col in df_filtered.columns]
+    if existing_columns_to_remove:
+        df_filtered.drop(columns=existing_columns_to_remove, inplace=True)
+        print(f"🧹 Removed columns: {existing_columns_to_remove}")
+
     # Crear nombre de archivo para el día específico
     output_filename = f'es_1min_data_{TARGET_DATE.replace("-", "_")}.csv'
     output_path = os.path.join(directorio, output_filename)
