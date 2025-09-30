@@ -1,7 +1,4 @@
-"""
-Main entry point for fractal detection analysis
-Configure parameters and run fractal detection on ES data
-"""
+
 
 import sys
 import os
