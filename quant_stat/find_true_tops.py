@@ -20,12 +20,38 @@ from config import DATA_DIR
 
 # Get absolute paths
 BASE_DIR = Path(__file__).parent.parent
-FRACTALS_CSV = BASE_DIR / 'outputs' / 'fractals_es_1min_data_2023_03_02_zigzag_0.1.csv'
-CANDLES_CSV = BASE_DIR / 'data' / 'es_1min_data_2023_03_02.csv'
-OUTPUT_CSV = BASE_DIR / 'outputs' / 'true_tops_creek_perdices.csv'
 
 # Analysis parameters
-TOLERANCE_PRICE = 2.0  # Price tolerance for "same level" detection (points)
+TOLERANCE_PRICE = float(sys.argv[1]) if len(sys.argv) > 1 else 2.0  # Price tolerance from main.py or default 2.0
+
+# Find the most recent fractals CSV file dynamically
+import glob
+import re
+
+fractals_files = sorted(glob.glob(str(BASE_DIR / 'outputs' / 'fractals_es_1min_data_*_zigzag_*.csv')),
+                       key=os.path.getmtime, reverse=True)
+
+if not fractals_files:
+    print("ERROR: No fractals CSV found in outputs/ folder")
+    sys.exit(1)
+
+FRACTALS_CSV = Path(fractals_files[0])
+print(f"📂 Using fractals file: {FRACTALS_CSV.name}")
+
+# Extract date from fractals filename
+date_match = re.search(r'es_1min_data_(\d{4}_\d{2}_\d{2})_zigzag', str(FRACTALS_CSV))
+if not date_match:
+    print("ERROR: Could not extract date from fractals filename")
+    sys.exit(1)
+
+date_str = date_match.group(1)
+CANDLES_CSV = BASE_DIR / 'data' / f'es_1min_data_{date_str}.csv'
+
+if not CANDLES_CSV.exists():
+    print(f"ERROR: Candles file not found: {CANDLES_CSV}")
+    sys.exit(1)
+
+OUTPUT_CSV = BASE_DIR / 'outputs' / f'true_tops_creek_perdices_{date_str}_tol_{TOLERANCE_PRICE}.csv'
 
 # ====================================================
 # 📥 LOAD DATA
@@ -34,6 +60,7 @@ TOLERANCE_PRICE = 2.0  # Price tolerance for "same level" detection (points)
 print("="*70)
 print("🎯 FIND TRUE TOPS - CREEK PERDICES DETECTION")
 print("="*70)
+print(f"Tolerance: ±{TOLERANCE_PRICE} points")
 
 # Load fractals
 df_fractals = pd.read_csv(FRACTALS_CSV)

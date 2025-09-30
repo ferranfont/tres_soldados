@@ -159,7 +159,11 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         print(f"Plotted {len(df_fractals)} fractals ({len(tops)} tops, {len(bottoms)} bottoms)")
 
     # Plot Creek Perdices (TRUE TOPs) if available
-    true_tops_csv = 'outputs/true_tops_creek_perdices.csv'
+    # Look for any creek perdices CSV matching the pattern
+    import glob
+    creek_csvs = glob.glob('outputs/true_tops_creek_perdices_*.csv')
+    true_tops_csv = creek_csvs[0] if creek_csvs else 'outputs/true_tops_creek_perdices.csv'
+
     if os.path.exists(true_tops_csv):
         df_true_tops = pd.read_csv(true_tops_csv)
         df_true_tops['timestamp'] = pd.to_datetime(df_true_tops['timestamp'])

@@ -18,9 +18,11 @@ from config import DATA_DIR, SYMBOL
 # ====================================================
 
 # Data file to analyze (must be in data/ folder) - create it before running this script
-DATA_FILE = 'es_1min_data_2023_03_02.csv'
+DATA_FILE = 'es_1min_data_2023_03_01.csv'
 # Zigzag detection sensitivity
 CHANGE_PCT = 0.10  # 0.10% minimum change,  try 0.05 for more sensitivity.
+# Creek perdices clustering tolerance
+TOLERANCE_PRICE = 2.0  # ±2.0 points tolerance for clustering TOPs
 # Plot chart after detection?
 PLOT_CHART = True  # Set to False to skip plotting
 
@@ -49,10 +51,36 @@ if __name__ == "__main__":
         print(f"SUCCESS: {len(fractals)} fractals detected and saved to outputs/")
         print(f"{'='*70}")
 
-        # Plot chart if enabled
+        # Run Creek Perdices detection (TRUE TOPs clustering)
+        print(f"\n{'='*70}")
+        print("DETECTING TRUE TOPS - CREEK PERDICES...")
+        print(f"{'='*70}")
+
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "-X", "utf8", "quant_stat/find_true_tops.py", str(TOLERANCE_PRICE)],
+            cwd=str(Path(__file__).parent),
+            capture_output=False
+        )
+
+        if result.returncode == 0:
+            # Build the correct filename with date and tolerance
+            date_str = DATA_FILE.replace('es_1min_data_', '').replace('.csv', '')
+            creek_csv = f"outputs/true_tops_creek_perdices_{date_str}_tol_{TOLERANCE_PRICE}.csv"
+
+            print(f"\n{'='*70}")
+            print("SUCCESS: Creek Perdices detection completed")
+            print(f"Results saved to: {creek_csv}")
+            print(f"{'='*70}")
+        else:
+            print(f"\n{'='*70}")
+            print("WARNING: Creek Perdices detection failed")
+            print(f"{'='*70}")
+
+        # Plot chart if enabled (AFTER creek perdices detection)
         if PLOT_CHART:
             print(f"\n{'='*70}")
-            print("PLOTTING CHART WITH FRACTALS...")
+            print("PLOTTING CHART WITH FRACTALS & CREEK PERDICES...")
             print(f"{'='*70}")
 
             # Load data
@@ -75,28 +103,6 @@ if __name__ == "__main__":
             plot_minute_data(SYMBOL, timeframe, df)
 
             print(f"\nChart generated: charts/{SYMBOL}_{timeframe}.html")
-
-        # Run Creek Perdices detection (TRUE TOPs clustering)
-        print(f"\n{'='*70}")
-        print("DETECTING TRUE TOPS - CREEK PERDICES...")
-        print(f"{'='*70}")
-
-        import subprocess
-        result = subprocess.run(
-            [sys.executable, "-X", "utf8", "quant_stat/find_true_tops.py"],
-            cwd=str(Path(__file__).parent),
-            capture_output=False
-        )
-
-        if result.returncode == 0:
-            print(f"\n{'='*70}")
-            print("SUCCESS: Creek Perdices detection completed")
-            print(f"Results saved to: outputs/true_tops_creek_perdices.csv")
-            print(f"{'='*70}")
-        else:
-            print(f"\n{'='*70}")
-            print("WARNING: Creek Perdices detection failed")
-            print(f"{'='*70}")
 
     else:
         print(f"\n{'='*70}")
