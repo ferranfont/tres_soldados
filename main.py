@@ -76,6 +76,28 @@ if __name__ == "__main__":
 
             print(f"\nChart generated: charts/{SYMBOL}_{timeframe}.html")
 
+        # Run Creek Perdices detection (TRUE TOPs clustering)
+        print(f"\n{'='*70}")
+        print("DETECTING TRUE TOPS - CREEK PERDICES...")
+        print(f"{'='*70}")
+
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "-X", "utf8", "quant_stat/find_true_tops.py"],
+            cwd=str(Path(__file__).parent),
+            capture_output=False
+        )
+
+        if result.returncode == 0:
+            print(f"\n{'='*70}")
+            print("SUCCESS: Creek Perdices detection completed")
+            print(f"Results saved to: outputs/true_tops_creek_perdices.csv")
+            print(f"{'='*70}")
+        else:
+            print(f"\n{'='*70}")
+            print("WARNING: Creek Perdices detection failed")
+            print(f"{'='*70}")
+
     else:
         print(f"\n{'='*70}")
         print("WARNING: No fractals detected. Try lowering CHANGE_PCT.")

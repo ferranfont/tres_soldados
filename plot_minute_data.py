@@ -32,7 +32,7 @@ def load_fractals_csv(fractal_csv_path):
         return None
 
 
-def plot_minute_data(symbol, timeframe, df, fractals_csv=None):
+def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_csv=None, same_range_tops_csv=None):
     """
     Función especializada para graficar datos de minutos con etiquetas de hora en el eje X
 
@@ -41,6 +41,8 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None):
         timeframe: Timeframe string for chart title
         df: DataFrame with OHLC data
         fractals_csv: Optional path to fractals CSV file. If None, will try to auto-detect.
+        confirmed_tops_csv: Optional path to confirmed TOPs CSV for horizontal lines
+        same_range_tops_csv: Optional path to same range TOPs CSV for orange dots
     """
     html_path = get_chart_path(symbol, timeframe)
 
@@ -155,6 +157,197 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None):
             ), row=1, col=1)
 
         print(f"Plotted {len(df_fractals)} fractals ({len(tops)} tops, {len(bottoms)} bottoms)")
+
+    # Plot Creek Perdices (TRUE TOPs) if available
+    true_tops_csv = 'outputs/true_tops_creek_perdices.csv'
+    if os.path.exists(true_tops_csv):
+        df_true_tops = pd.read_csv(true_tops_csv)
+        df_true_tops['timestamp'] = pd.to_datetime(df_true_tops['timestamp'])
+        df_true_tops['last_top_timestamp'] = pd.to_datetime(df_true_tops['last_top_timestamp'])
+
+        print(f"🎯 Plotting {len(df_true_tops)} Creek Perdices clusters...")
+
+        # Plot orange squares (first TOP in cluster) - slightly above the actual price
+        fig.add_trace(go.Scatter(
+            x=df_true_tops['timestamp'],
+            y=df_true_tops['price'] + 1.0,  # Offset 1.0 points above
+            mode='markers',
+            marker=dict(
+                color='orange',
+                size=7,
+                symbol='square',
+                line=dict(color='darkorange', width=1)
+            ),
+            name='Creek Start',
+            hovertemplate='%{customdata[0]}<br>Time: %{x}<br>Price: $%{customdata[1]:.2f}<br>Last TOP: $%{customdata[2]:.2f}<extra></extra>',
+            customdata=list(zip(df_true_tops['group'], df_true_tops['price'], df_true_tops['next_top_price'])),
+            showlegend=True
+        ), row=1, col=1)
+
+        # Plot red dots (last TOP in cluster) and blue lines
+        for idx, cluster in df_true_tops.iterrows():
+            # Green square at last TOP - slightly above the actual price
+            fig.add_trace(go.Scatter(
+                x=[cluster['last_top_timestamp']],
+                y=[cluster['next_top_price'] + 1.0],  # Offset 1.0 points above
+                mode='markers',
+                marker=dict(
+                    color='green',
+                    size=7,
+                    symbol='square',
+                    line=dict(color='darkgreen', width=1)
+                ),
+                name='Creek End' if idx == 0 else None,
+                hovertemplate=f"{cluster['group']} End<br>Time: %{{x}}<br>Price: ${cluster['next_top_price']:.2f}<extra></extra>",
+                showlegend=(idx == 0)
+            ), row=1, col=1)
+
+            # Calculate average price for creek line
+            avg_price = (cluster['price'] + cluster['next_top_price']) / 2
+
+            # Find breakout point
+            candles_after = df[df['date'] > cluster['last_top_timestamp']].copy()
+            breakout = candles_after[candles_after['close'] > avg_price]
+
+            if len(breakout) > 0:
+                end_time = breakout.iloc[0]['date']
+                breakout_price = breakout.iloc[0]['close']
+                breakout_found = True
+            else:
+                # Extend 2 candles beyond last TOP
+                last_idx = df[df['date'] == cluster['last_top_timestamp']].index
+                if len(last_idx) > 0 and last_idx[0] + 2 < len(df):
+                    end_time = df.iloc[last_idx[0] + 2]['date']
+                else:
+                    end_time = cluster['last_top_timestamp']
+                breakout_found = False
+
+            # Find lowest low in range
+            range_candles = df[(df['date'] >= cluster['timestamp']) & (df['date'] <= end_time)]
+            lowest_low = range_candles['low'].min() if len(range_candles) > 0 else avg_price - 5
+
+            # Draw gray rectangle
+            fig.add_shape(
+                type="rect",
+                x0=cluster['timestamp'],
+                x1=end_time,
+                y0=lowest_low,
+                y1=avg_price,
+                fillcolor='lightgray',
+                opacity=0.2,
+                line=dict(width=0),
+                row=1, col=1
+            )
+
+            # Draw blue horizontal creek line
+            fig.add_trace(go.Scatter(
+                x=[cluster['timestamp'], end_time],
+                y=[avg_price, avg_price],
+                mode='lines',
+                line=dict(
+                    color='blue',
+                    width=1,
+                    dash='solid'
+                ),
+                name='Creek Perdices' if idx == 0 else None,
+                hovertemplate=f"{cluster['group']}<br>Creek: ${avg_price:.2f}<extra></extra>",
+                showlegend=(idx == 0)
+            ), row=1, col=1)
+
+            # Draw lime triangle-up marker at breakout candle close
+            if breakout_found:
+                fig.add_trace(go.Scatter(
+                    x=[end_time],
+                    y=[breakout_price],
+                    mode='markers',
+                    marker=dict(
+                        color='lime',
+                        size=9,
+                        symbol='triangle-up',
+                        line=dict(color='green', width=1)
+                    ),
+                    name='Breakout' if idx == 0 else None,
+                    hovertemplate=f"{cluster['group']} Breakout<br>Time: %{{x}}<br>Close: ${breakout_price:.2f}<extra></extra>",
+                    showlegend=(idx == 0)
+                ), row=1, col=1)
+
+    # Plot same range TOPs as orange dots (legacy support)
+    elif same_range_tops_csv and os.path.exists(same_range_tops_csv):
+        df_same_range = pd.read_csv(same_range_tops_csv)
+        df_same_range['timestamp'] = pd.to_datetime(df_same_range['timestamp'])
+
+        print(f"🟠 Plotting {len(df_same_range)} same range TOPs as orange dots...")
+
+        fig.add_trace(go.Scatter(
+            x=df_same_range['timestamp'],
+            y=df_same_range['price'],
+            mode='markers',
+            marker=dict(
+                color='orange',
+                size=15,
+                symbol='circle',
+                line=dict(color='darkorange', width=2)
+            ),
+            name='Same Range TOPs',
+            hovertemplate='Same Range TOP<br>Time: %{x}<br>Price: $%{y:.2f}<br>Next: $%{customdata:.2f}<extra></extra>',
+            customdata=df_same_range['next_top_price'],
+            showlegend=True
+        ), row=1, col=1)
+
+    # Plot confirmed TOPs as horizontal lines
+    if confirmed_tops_csv and os.path.exists(confirmed_tops_csv):
+        df_confirmed = pd.read_csv(confirmed_tops_csv)
+        df_confirmed['timestamp'] = pd.to_datetime(df_confirmed['timestamp'])
+
+        print(f"📊 Plotting {len(df_confirmed)} confirmed TOPs as horizontal lines...")
+
+        colors = ['red', 'orange', 'purple', 'brown', 'pink', 'darkred', 'crimson', 'maroon']
+
+        for idx, top in df_confirmed.iterrows():
+            # Use different color for each line
+            color = colors[idx % len(colors)]
+
+            # Find the time range for the horizontal line
+            # Start from the TOP timestamp
+            start_time = top['timestamp']
+
+            # End at the next confirmed TOP or end of data
+            if idx + 1 < len(df_confirmed):
+                end_time = df_confirmed.iloc[idx + 1]['timestamp']
+            else:
+                end_time = df['date'].max()
+
+            # Draw thick horizontal line
+            fig.add_shape(
+                type="line",
+                x0=start_time,
+                x1=end_time,
+                y0=top['price'],
+                y1=top['price'],
+                line=dict(
+                    color=color,
+                    width=3,
+                    dash='solid'
+                ),
+                row=1, col=1
+            )
+
+            # Add simple text label at the start
+            fig.add_annotation(
+                x=start_time,
+                y=top['price'],
+                text=f"#{idx+1}: ${top['price']:.2f}",
+                showarrow=False,
+                xanchor='left',
+                yanchor='bottom',
+                xshift=5,
+                yshift=5,
+                bgcolor='rgba(255,255,255,0.9)',
+                bordercolor=color,
+                borderwidth=2,
+                font=dict(size=12, color=color, family='Arial Black'),
+                row=1, col=1
+            )
 
     # Barras de volumen
     fig.add_trace(go.Bar(
