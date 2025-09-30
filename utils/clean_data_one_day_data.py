@@ -17,7 +17,7 @@ from plot_minute_data import plot_minute_data
 symbol = SYMBOL
 
 # Variable de fecha - cambiar esta fecha para extraer datos de otro día
-TARGET_DATE = '2023-03-01'  # Formato: YYYY-MM-DD
+TARGET_DATE = '2023-03-03'  # Formato: YYYY-MM-DD
 
 # VWAP period configuration
 VWAP_PERIOD = 100  # 100-period VWAP moving average

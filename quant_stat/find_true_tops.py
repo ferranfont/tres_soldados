@@ -21,30 +21,26 @@ from config import DATA_DIR
 # Get absolute paths
 BASE_DIR = Path(__file__).parent.parent
 
-# Analysis parameters
-TOLERANCE_PRICE = float(sys.argv[1]) if len(sys.argv) > 1 else 2.0  # Price tolerance from main.py or default 2.0
+# Analysis parameters from main.py
+TOLERANCE_PRICE = float(sys.argv[1]) if len(sys.argv) > 1 else 2.0
+date_str = sys.argv[2] if len(sys.argv) > 2 else '2023_03_02'  # Date from main.py
 
-# Find the most recent fractals CSV file dynamically
+# Build file paths based on date received
 import glob
 import re
 
-fractals_files = sorted(glob.glob(str(BASE_DIR / 'outputs' / 'fractals_es_1min_data_*_zigzag_*.csv')),
-                       key=os.path.getmtime, reverse=True)
+# Find fractals file matching the specific date
+fractals_pattern = str(BASE_DIR / 'outputs' / f'fractals_es_1min_data_{date_str}_zigzag_*.csv')
+fractals_files = glob.glob(fractals_pattern)
 
 if not fractals_files:
-    print("ERROR: No fractals CSV found in outputs/ folder")
+    print(f"ERROR: No fractals CSV found for date {date_str}")
+    print(f"Looking for: {fractals_pattern}")
     sys.exit(1)
 
 FRACTALS_CSV = Path(fractals_files[0])
 print(f"📂 Using fractals file: {FRACTALS_CSV.name}")
 
-# Extract date from fractals filename
-date_match = re.search(r'es_1min_data_(\d{4}_\d{2}_\d{2})_zigzag', str(FRACTALS_CSV))
-if not date_match:
-    print("ERROR: Could not extract date from fractals filename")
-    sys.exit(1)
-
-date_str = date_match.group(1)
 CANDLES_CSV = BASE_DIR / 'data' / f'es_1min_data_{date_str}.csv'
 
 if not CANDLES_CSV.exists():
@@ -138,6 +134,81 @@ for cluster in clusters:
     first_top = cluster_tops.iloc[0]
     last_top = cluster_tops.iloc[-1]
 
+    # Calculate average price for creek line (mean of ALL TOPs in cluster)
+    avg_price = cluster_tops['price'].mean()
+
+    # Find breakout candle (first close above creek line after last TOP)
+    first_candle_idx = first_top['index']  # Index in original candles dataframe
+    last_top_candle_idx = last_top['index']
+
+    # Get candles after the last TOP
+    candles_after_last_top = df_candles[df_candles['date'] > last_top['timestamp']].copy()
+
+    # Find first candle that closes above the creek line
+    breakout_candles = candles_after_last_top[candles_after_last_top['close'] > avg_price]
+
+    if len(breakout_candles) > 0:
+        # Found breakout - use first breakout candle
+        breakout_candle = breakout_candles.iloc[0]
+        breakout_idx = breakout_candle.name  # DataFrame index
+        breakout_timestamp = breakout_candle['date']
+    else:
+        # No breakout found - extend 2 candles beyond last TOP
+        last_top_df_idx = df_candles[df_candles['date'] == last_top['timestamp']].index
+        if len(last_top_df_idx) > 0 and last_top_df_idx[0] + 2 < len(df_candles):
+            breakout_idx = last_top_df_idx[0] + 2
+            breakout_timestamp = df_candles.iloc[breakout_idx]['date']
+        else:
+            # Fallback to last TOP
+            breakout_idx = last_top_candle_idx
+            breakout_timestamp = last_top['timestamp']
+
+    # Calculate cluster_size as number of bars from first TOP to breakout candle
+    cluster_bars = breakout_idx - first_candle_idx + 1  # +1 to include both ends
+
+    # Get candles starting from 5 bars BEFORE first TOP to breakout (for Touch calculation)
+    first_top_df_idx = df_candles[df_candles['date'] == first_top['timestamp']].index
+    if len(first_top_df_idx) > 0:
+        start_idx_with_lookback = max(0, first_top_df_idx[0] - 5)  # 5 bars before, or 0 if not enough
+        start_timestamp_with_lookback = df_candles.iloc[start_idx_with_lookback]['date']
+    else:
+        start_timestamp_with_lookback = first_top['timestamp']
+
+    # Get all candles in the extended range (5 bars before first TOP to breakout)
+    cluster_candles_extended = df_candles[(df_candles['date'] >= start_timestamp_with_lookback) &
+                                          (df_candles['date'] <= breakout_timestamp)].copy()
+
+    # Get candles in the normal cluster range (from first TOP to breakout) for lowest_low calculation
+    cluster_candles = df_candles[(df_candles['date'] >= first_top['timestamp']) &
+                                  (df_candles['date'] <= breakout_timestamp)].copy()
+
+    # Find the lowest low in the normal range to calculate quantile 90
+    lowest_low = cluster_candles['low'].min()
+
+    # Calculate quantile 90 threshold (90% of the way from lowest low to creek)
+    price_range = avg_price - lowest_low
+    quantile_90_threshold = lowest_low + (price_range * 0.90)
+
+    # Identify candle type (green = bullish, red = bearish) in EXTENDED range
+    cluster_candles_extended['is_green'] = cluster_candles_extended['close'] >= cluster_candles_extended['open']
+
+    # Count candles touching quantile 90 based on candle type (using EXTENDED range with 5 bars lookback):
+    # - Red candles: high OR open >= threshold
+    # - Green candles: high OR close >= threshold
+    candles_touching_creek = cluster_candles_extended[
+        (
+            (~cluster_candles_extended['is_green']) &  # Red candles
+            ((cluster_candles_extended['high'] >= quantile_90_threshold) |
+             (cluster_candles_extended['open'] >= quantile_90_threshold))
+        ) |
+        (
+            (cluster_candles_extended['is_green']) &  # Green candles
+            ((cluster_candles_extended['high'] >= quantile_90_threshold) |
+             (cluster_candles_extended['close'] >= quantile_90_threshold))
+        )
+    ]
+    touch_count = len(candles_touching_creek)
+
     analysis_results.append({
         'group': cluster['group'],
         'top_index': cluster['indices'][0],
@@ -146,10 +217,14 @@ for cluster in clusters:
         'next_top_price': last_top['price'],
         'price_diff_next': round(abs(last_top['price'] - first_top['price']), 2),
         'is_same_range': True,
-        'cluster_size': len(cluster['indices']),
+        'top_count': len(cluster['indices']),  # Number of TOPs in cluster
+        'cluster_size': cluster_bars,  # Number of bars from first TOP to breakout
+        'touches_creek': touch_count,  # Candles touching/near creek (quantile 90)
         'first_top_idx': cluster['indices'][0],
         'last_top_idx': cluster['indices'][-1],
-        'last_top_timestamp': last_top['timestamp']
+        'last_top_timestamp': last_top['timestamp'],
+        'breakout_timestamp': breakout_timestamp,
+        'creek_price': round(avg_price, 2)
     })
 
 # Create DataFrame with results
@@ -173,10 +248,10 @@ print("="*70)
 print(f"\n✅ Found {len(df_true_tops)} TRUE TOPs (out of {len(df_tops)} total TOPs)")
 
 if len(df_true_tops) > 0:
-    print(f"\n{'Group':<12} | {'Size':<5} | {'First TOP':<20} | {'Price':<10} | {'Last TOP':<20} | {'Last Price':<10} | {'Diff':<8}")
-    print("-" * 110)
+    print(f"\n{'Group':<12} | {'TOPs':<5} | {'Bars':<5} | {'Touch':<6} | {'Creek':<10} | {'First TOP':<20} | {'Price':<10} | {'Last TOP':<20} | {'Last Price':<10} | {'Diff':<8}")
+    print("-" * 145)
     for idx, top in df_true_tops.iterrows():
-        print(f"{top['group']:<12} | {top['cluster_size']:<5} | {str(top['timestamp']):<20} | ${top['price']:<9.2f} | {str(top['last_top_timestamp']):<20} | ${top['next_top_price']:<9.2f} | ${top['price_diff_next']:.2f}")
+        print(f"{top['group']:<12} | {top['top_count']:<5} | {top['cluster_size']:<5} | {top['touches_creek']:<6} | ${top['creek_price']:<9.2f} | {str(top['timestamp']):<20} | ${top['price']:<9.2f} | {str(top['last_top_timestamp']):<20} | ${top['next_top_price']:<9.2f} | ${top['price_diff_next']:.2f}")
 
     print("\n" + "="*70)
     print("📋 CRITERIA USED:")

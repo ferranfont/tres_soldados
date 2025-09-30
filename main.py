@@ -18,7 +18,7 @@ from config import DATA_DIR, SYMBOL
 # ====================================================
 
 # Data file to analyze (must be in data/ folder) - create it before running this script
-DATA_FILE = 'es_1min_data_2023_03_01.csv'
+DATA_FILE = 'es_1min_data_2023_03_02.csv'
 # Zigzag detection sensitivity
 CHANGE_PCT = 0.10  # 0.10% minimum change,  try 0.05 for more sensitivity.
 # Creek perdices clustering tolerance
@@ -57,8 +57,10 @@ if __name__ == "__main__":
         print(f"{'='*70}")
 
         import subprocess
+        # Extract date from DATA_FILE to pass to find_true_tops.py
+        date_str = DATA_FILE.replace('es_1min_data_', '').replace('.csv', '')
         result = subprocess.run(
-            [sys.executable, "-X", "utf8", "quant_stat/find_true_tops.py", str(TOLERANCE_PRICE)],
+            [sys.executable, "-X", "utf8", "quant_stat/find_true_tops.py", str(TOLERANCE_PRICE), date_str],
             cwd=str(Path(__file__).parent),
             capture_output=False
         )

@@ -32,7 +32,7 @@ def load_fractals_csv(fractal_csv_path):
         return None
 
 
-def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_csv=None, same_range_tops_csv=None):
+def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_csv=None, same_range_tops_csv=None, date_filter=None, tolerance=None, change_pct=None):
     """
     Función especializada para graficar datos de minutos con etiquetas de hora en el eje X
 
@@ -43,6 +43,9 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         fractals_csv: Optional path to fractals CSV file. If None, will try to auto-detect.
         confirmed_tops_csv: Optional path to confirmed TOPs CSV for horizontal lines
         same_range_tops_csv: Optional path to same range TOPs CSV for orange dots
+        date_filter: Date string (YYYY_MM_DD) to filter creek perdices CSV
+        tolerance: Tolerance value to construct creek perdices filename
+        change_pct: Zigzag change percentage for chart title
     """
     html_path = get_chart_path(symbol, timeframe)
 
@@ -159,10 +162,17 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         print(f"Plotted {len(df_fractals)} fractals ({len(tops)} tops, {len(bottoms)} bottoms)")
 
     # Plot Creek Perdices (TRUE TOPs) if available
-    # Look for any creek perdices CSV matching the pattern
+    # Build the exact filename based on date and tolerance if provided
     import glob
-    creek_csvs = glob.glob('outputs/true_tops_creek_perdices_*.csv')
-    true_tops_csv = creek_csvs[0] if creek_csvs else 'outputs/true_tops_creek_perdices.csv'
+
+    if date_filter and tolerance is not None:
+        # Use exact filename matching the date and tolerance
+        true_tops_csv = f'outputs/true_tops_creek_perdices_{date_filter}_tol_{tolerance}.csv'
+        print(f"🔍 Looking for creek perdices file: {true_tops_csv}")
+    else:
+        # Fallback: look for any creek perdices CSV
+        creek_csvs = sorted(glob.glob('outputs/true_tops_creek_perdices_*.csv'), key=os.path.getmtime, reverse=True)
+        true_tops_csv = creek_csvs[0] if creek_csvs else 'outputs/true_tops_creek_perdices.csv'
 
     if os.path.exists(true_tops_csv):
         df_true_tops = pd.read_csv(true_tops_csv)
@@ -230,20 +240,48 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
             range_candles = df[(df['date'] >= cluster['timestamp']) & (df['date'] <= end_time)]
             lowest_low = range_candles['low'].min() if len(range_candles) > 0 else avg_price - 5
 
-            # Draw gray rectangle
-            fig.add_shape(
-                type="rect",
-                x0=cluster['timestamp'],
-                x1=end_time,
-                y0=lowest_low,
-                y1=avg_price,
-                fillcolor='lightgray',
-                opacity=0.2,
-                line=dict(width=0),
-                row=1, col=1
+            # Draw gray rectangle with gradient effect (darker at top near creek, lighter at bottom)
+            # Create gradient by stacking multiple rectangles with different opacities
+            num_layers = 8
+            price_step = (avg_price - lowest_low) / num_layers
+
+            for layer in range(num_layers):
+                y0_layer = lowest_low + (layer * price_step)
+                y1_layer = lowest_low + ((layer + 1) * price_step)
+
+                # Opacity increases from bottom (0.05) to top (0.25)
+                # layer 0 (bottom) = 0.05, layer 7 (top) = 0.25
+                # Step: (0.25 - 0.05) / 7 = 0.0286
+                opacity_layer = 0.05 + (layer * 0.0286)
+
+                # Add border line only on the top layer
+                if layer == num_layers - 1:
+                    line_style = dict(color='gray', width=1)
+                else:
+                    line_style = dict(width=0)
+
+                fig.add_shape(
+                    type="rect",
+                    x0=cluster['timestamp'],
+                    x1=end_time,
+                    y0=y0_layer,
+                    y1=y1_layer,
+                    fillcolor='gray',
+                    opacity=opacity_layer,
+                    line=line_style,
+                    row=1, col=1
+                )
+
+            # Draw blue horizontal creek line with enhanced hover info
+            hover_text = (
+                f"{cluster['group']}<br>"
+                f"Creek: ${avg_price:.2f}<br>"
+                f"TOPs: {cluster.get('top_count', 'N/A')}<br>"
+                f"Bars: {cluster.get('cluster_size', 'N/A')}<br>"
+                f"Touch: {cluster.get('touches_creek', 'N/A')}<br>"
+                f"<extra></extra>"
             )
 
-            # Draw blue horizontal creek line
             fig.add_trace(go.Scatter(
                 x=[cluster['timestamp'], end_time],
                 y=[avg_price, avg_price],
@@ -254,7 +292,7 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
                     dash='solid'
                 ),
                 name='Creek Perdices' if idx == 0 else None,
-                hovertemplate=f"{cluster['group']}<br>Creek: ${avg_price:.2f}<extra></extra>",
+                hovertemplate=hover_text,
                 showlegend=(idx == 0)
             ), row=1, col=1)
 
@@ -272,6 +310,56 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
                     ),
                     name='Breakout' if idx == 0 else None,
                     hovertemplate=f"{cluster['group']} Breakout<br>Time: %{{x}}<br>Close: ${breakout_price:.2f}<extra></extra>",
+                    showlegend=(idx == 0)
+                ), row=1, col=1)
+
+            # TEST: Plot black dots on candles touching quantile 90 (for testing only)
+            # Calculate quantile 90 threshold
+            quantile_90_threshold = lowest_low + (avg_price - lowest_low) * 0.90
+
+            # Get extended range: 5 candles BEFORE first TOP to breakout
+            first_top_idx_in_df = df[df['date'] == cluster['timestamp']].index
+            if len(first_top_idx_in_df) > 0:
+                start_idx_with_lookback = max(0, first_top_idx_in_df[0] - 5)
+                start_time_with_lookback = df.iloc[start_idx_with_lookback]['date']
+            else:
+                start_time_with_lookback = cluster['timestamp']
+
+            # Get extended range candles (5 bars before to breakout)
+            range_candles_extended = df[(df['date'] >= start_time_with_lookback) &
+                                        (df['date'] <= end_time)].copy()
+
+            # Identify candle type (green = bullish, red = bearish)
+            range_candles_extended['is_green'] = range_candles_extended['close'] >= range_candles_extended['open']
+
+            # Filter candles touching quantile 90 based on candle type:
+            # - Red candles: high OR open >= threshold
+            # - Green candles: high OR close >= threshold
+            range_candles_filtered = range_candles_extended[
+                (
+                    (~range_candles_extended['is_green']) &  # Red candles
+                    ((range_candles_extended['high'] >= quantile_90_threshold) |
+                     (range_candles_extended['open'] >= quantile_90_threshold))
+                ) |
+                (
+                    (range_candles_extended['is_green']) &  # Green candles
+                    ((range_candles_extended['high'] >= quantile_90_threshold) |
+                     (range_candles_extended['close'] >= quantile_90_threshold))
+                )
+            ].copy()
+
+            if len(range_candles_filtered) > 0:
+                fig.add_trace(go.Scatter(
+                    x=range_candles_filtered['date'],
+                    y=range_candles_filtered['high'],  # Always plot at the high
+                    mode='markers',
+                    marker=dict(
+                        color='black',
+                        size=4,
+                        symbol='circle'
+                    ),
+                    name='Q90 Touch' if idx == 0 else None,
+                    hovertemplate=f"{cluster['group']} Q90<br>Time: %{{x}}<br>High: $%{{y:.2f}}<extra></extra>",
                     showlegend=(idx == 0)
                 ), row=1, col=1)
 
@@ -364,9 +452,17 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         name='Volumen'
     ), row=2, col=1)
 
+    # Build title with parameters
+    title_parts = [f'{symbol}_{timeframe} - tres_soldados']
+    if change_pct is not None:
+        title_parts.append(f'ZigZag: {change_pct}%')
+    if tolerance is not None:
+        title_parts.append(f'Tolerance: ±{tolerance} pts')
+    chart_title = ' | '.join(title_parts)
+
     fig.update_layout(
         dragmode='pan',
-        title=f'{symbol}_{timeframe} - tres_soldados',
+        title=chart_title,
         width=CHART_WIDTH,
         height=CHART_HEIGHT,
         margin=dict(l=20, r=20, t=40, b=20),
