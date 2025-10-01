@@ -1,5 +1,9 @@
 # Data Cleaning Scripts Documentation
 
+IMPORTANTE: ANTES DE EJECUTAR EL MAIN, ES NECESARIO EXTRAER EL FICHERO 
+CON LA FECHA QUE SE QUIERE ANALIZAR Y CREAR EL CSV DEL DIA EN PARTICULAR
+POR ELLO HAY QUE EJECUTAR clean_data_one_day_data.py 
+
 ## Overview
 This folder contains Python scripts to process, clean, and visualize E-mini S&P 500 (ES) futures data at different timeframes.
 

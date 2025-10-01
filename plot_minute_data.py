@@ -179,6 +179,10 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         df_true_tops['timestamp'] = pd.to_datetime(df_true_tops['timestamp'])
         df_true_tops['last_top_timestamp'] = pd.to_datetime(df_true_tops['last_top_timestamp'])
 
+        # Handle master candle timestamp if present
+        if 'mastercandle_timestamp' in df_true_tops.columns:
+            df_true_tops['mastercandle_timestamp'] = pd.to_datetime(df_true_tops['mastercandle_timestamp'], errors='coerce')
+
         print(f"🎯 Plotting {len(df_true_tops)} Creek Perdices clusters...")
 
         # Plot orange squares (first TOP in cluster) - slightly above the actual price
@@ -304,7 +308,7 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
                     mode='markers',
                     marker=dict(
                         color='lime',
-                        size=9,
+                        size=12,
                         symbol='triangle-up',
                         line=dict(color='green', width=1)
                     ),
@@ -362,6 +366,128 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
                     hovertemplate=f"{cluster['group']} Q90<br>Time: %{{x}}<br>High: $%{{y:.2f}}<extra></extra>",
                     showlegend=(idx == 0)
                 ), row=1, col=1)
+
+        # Plot Master Candles (yellow asterisk 2 points below the low)
+        if 'mastercandle' in df_true_tops.columns and 'mastercandle_timestamp' in df_true_tops.columns:
+            master_candles = df_true_tops[df_true_tops['mastercandle'] == 'master'].copy()
+
+            if len(master_candles) > 0:
+                print(f"⭐ Plotting {len(master_candles)} Master Candles...")
+
+                # For each master candle, find the low of that candle and build custom data
+                master_lows = []
+                master_times = []
+                master_customdata = []
+
+                for idx, mc in master_candles.iterrows():
+                    mc_timestamp = mc['mastercandle_timestamp']
+                    if pd.notna(mc_timestamp):
+                        # Find the candle at this timestamp
+                        candle_at_timestamp = df[df['date'] == mc_timestamp]
+                        if len(candle_at_timestamp) > 0:
+                            candle_low = candle_at_timestamp.iloc[0]['low']
+                            master_lows.append(candle_low - 2.0)  # 2 points below the low
+                            master_times.append(mc_timestamp)
+
+                            # Get mastercandle data for hover
+                            mc_range = mc.get('mastercandle_range', 0.0)
+                            mc_tail_pct = mc.get('mastercandle_upper_tail_pct', 0.0)
+                            mc_close = mc.get('mastercandle_close', 0.0)
+                            mc_group = mc.get('group', 'N/A')
+
+                            master_customdata.append([mc_group, mc_close, mc_range, mc_tail_pct])
+
+                if len(master_times) > 0:
+                    fig.add_trace(go.Scatter(
+                        x=master_times,
+                        y=master_lows,
+                        mode='markers',
+                        marker=dict(
+                            color='gold',
+                            size=12,
+                            symbol='asterisk-open',
+                            line=dict(color='orange', width=2)
+                        ),
+                        name='Master Candle',
+                        customdata=master_customdata,
+                        hovertemplate=(
+                            'Master Candle<br>'
+                            'Group: %{customdata[0]}<br>'
+                            'Time: %{x}<br>'
+                            'Close: $%{customdata[1]:.2f}<br>'
+                            'Range: $%{customdata[2]:.2f}<br>'
+                            'Upper Tail: %{customdata[3]:.1f}%<br>'
+                            '<extra></extra>'
+                        ),
+                        showlegend=True
+                    ), row=1, col=1)
+
+        # Plot True Volume candles (red hash below the low)
+        if 'true_volume1_time' in df_true_tops.columns:
+            print(f"📊 Plotting True Volume candles...")
+
+            # Collect all volume candles from all clusters
+            volume_times = []
+            volume_lows = []
+            volume_customdata = []
+
+            for idx, cluster in df_true_tops.iterrows():
+                group = cluster['group']
+                first_top_ts = cluster['timestamp']
+                breakout_ts = cluster['breakout_timestamp']
+
+                # Calculate average volume for this cluster's consolidation zone
+                cluster_candles = df[
+                    (df['date'] >= first_top_ts) &
+                    (df['date'] <= breakout_ts)
+                ]
+                avg_volume = cluster_candles['volume'].mean() if len(cluster_candles) > 0 else 0
+
+                # Check each volume slot (1, 2, 3)
+                for vol_num in [1, 2, 3]:
+                    vol_time_col = f'true_volume{vol_num}_time'
+                    vol_value_col = f'true_volume{vol_num}_value'
+
+                    if vol_time_col in cluster and pd.notna(cluster[vol_time_col]):
+                        vol_time = cluster[vol_time_col]
+                        vol_value = cluster[vol_value_col]
+
+                        # Calculate volume ratio (as percentage)
+                        vol_ratio_pct = (vol_value / avg_volume * 100) if avg_volume > 0 else 0
+
+                        # Find the candle at this timestamp to get the low
+                        candle_at_time = df[df['date'] == vol_time]
+                        if len(candle_at_time) > 0:
+                            candle_low = candle_at_time.iloc[0]['low']
+                            volume_times.append(vol_time)
+                            volume_lows.append(candle_low - 0.5)  # 0.5 points below the low
+                            volume_customdata.append([group, vol_time, vol_value, avg_volume, vol_ratio_pct])
+
+            if len(volume_times) > 0:
+                fig.add_trace(go.Scatter(
+                    x=volume_times,
+                    y=volume_lows,
+                    mode='markers',
+                    marker=dict(
+                        color='deeppink',
+                        size=10,
+                        symbol='hash-open',
+                        line=dict(color='hotpink', width=2)
+                    ),
+                    name='High Volume',
+                    customdata=volume_customdata,
+                    hovertemplate=(
+                        'High Volume<br>'
+                        'Group: %{customdata[0]}<br>'
+                        'Time: %{customdata[1]}<br>'
+                        'Volume: %{customdata[2]:,.0f}<br>'
+                        'Avg Volume: %{customdata[3]:,.0f}<br>'
+                        'Ratio: %{customdata[4]:.1f}%<br>'
+                        '<extra></extra>'
+                    ),
+                    showlegend=True
+                ), row=1, col=1)
+                print(f"   ✅ Plotted {len(volume_times)} high volume candles")
 
     # Plot same range TOPs as orange dots (legacy support)
     elif same_range_tops_csv and os.path.exists(same_range_tops_csv):
@@ -452,12 +578,20 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         name='Volumen'
     ), row=2, col=1)
 
-    # Build title with parameters
-    title_parts = [f'{symbol}_{timeframe} - tres_soldados']
+    # Build title with parameters including day of week
+    # Extract date from timeframe to get day of week
+    date_part = timeframe.replace('1min_', '').replace('_', '-')
+    try:
+        date_obj = pd.to_datetime(date_part)
+        day_of_week = date_obj.strftime('%A')  # Full day name (Monday, Tuesday, etc.)
+        title_parts = [f'{symbol}_{timeframe} ({day_of_week}) - tres_soldados']
+    except:
+        title_parts = [f'{symbol}_{timeframe} - tres_soldados']
+
     if change_pct is not None:
         title_parts.append(f'ZigZag: {change_pct}%')
     if tolerance is not None:
-        title_parts.append(f'Tolerance: ±{tolerance} pts')
+        title_parts.append(f'Tol: {tolerance}')
     chart_title = ' | '.join(title_parts)
 
     fig.update_layout(

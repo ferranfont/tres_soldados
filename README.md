@@ -19,7 +19,9 @@ python main.py
 This will:
 1. Detect fractals (TOPs/BOTTOMs) using zigzag algorithm
 2. Identify creek perdices clusters (consolidated TOPs)
-3. Generate interactive HTML chart with all visualizations
+3. Detect master candles (high-conviction breakout candles)
+4. Identify high-volume candles in consolidation zones
+5. Generate interactive HTML chart with all visualizations
 
 ## 📁 Project Structure
 
@@ -33,6 +35,8 @@ tres_soldados/
 ├── quant_stat/                        # Core analysis modules
 │   ├── find_tops_and_bottoms.py              # Zigzag fractal detection
 │   ├── find_true_tops.py                     # Creek perdices clustering
+│   ├── find_true_mastercandle.py             # Master candle detection
+│   ├── find_true_volume.py                   # High volume analysis
 │   └── consolidation_analysis.py             # Statistical analysis tools
 │
 ├── outputs/                           # Analysis results (CSV)
@@ -65,7 +69,22 @@ tres_soldados/
 - **Visualization**: Horizontal resistance lines at consolidation zones
 - **Breakout Detection**: Identifies when price closes above creek line
 
-### 3. Integrated Visualization
+### 3. Master Candle Detection
+- **Criteria**:
+  - Candle closes ABOVE creek line (breakout)
+  - Range > average range of consolidation zone
+  - Upper tail ≤ 20% of candle range (configurable)
+- **Visualization**: Gold asterisk-open symbols
+- **Output**: Master candle timestamp, range, tail percentage
+
+### 4. High Volume Analysis
+- **Method**: Identifies candles with volume ≥ 1.5x average (configurable)
+- **Position Filter**: Only candles in lower 70th percentile (configurable)
+- **Exception**: Master candles always included regardless of position
+- **Visualization**: Deep pink hash symbols below candle lows
+- **Output**: Up to 3 highest volume candles per cluster
+
+### 5. Integrated Visualization
 - **Candlestick Chart**: OHLC bars with volume
 - **Fractals**: Blue dots marking TOPs/BOTTOMs
 - **Creek Perdices**:
@@ -74,6 +93,8 @@ tres_soldados/
   - Blue horizontal line → Creek resistance level
   - Gray rectangle → Consolidation zone
   - Lime triangle-up → Breakout candle
+- **Master Candles**: Gold asterisk-open symbols
+- **High Volume**: Deep pink hash symbols
 
 ## 📖 Usage
 
@@ -87,6 +108,10 @@ python main.py
 ```python
 DATA_FILE = 'es_1min_data_2023_03_02.csv'  # Input data
 CHANGE_PCT = 0.10                          # Zigzag sensitivity (0.10%)
+TOLERANCE_PRICE = 2.0                      # Creek clustering tolerance (±2.0 points)
+MASTER_UPPER_TAIL_PCT = 20                 # Master candle max upper tail (20%)
+VOL_MULTIPL = 1.5                          # Volume threshold (1.5x average)
+VOL_PERCENTILE = 70                        # Position filter (70th percentile)
 PLOT_CHART = True                          # Generate chart
 ```
 
@@ -167,26 +192,250 @@ TOLERANCE_PRICE = 2.0  # ±2.0 points price range
 | Gray Rectangle | Consolidation zone | LightGray (20% opacity) | Creek to lowest low |
 | Lime Triangle | Breakout candle | Lime | At candle close |
 
-## 📊 Analysis Workflow
+## 📊 How Files Work - Complete Workflow
+
+### Data Pipeline
+
+The project follows a structured pipeline from raw historical data to analyzed single-day charts:
 
 ```
-1. Load 1-minute ES data
-   ↓
-2. Detect Zigzag Fractals
-   ├── Find TOPs (local highs)
-   ├── Find BOTTOMs (local lows)
-   └── Calculate distances & metrics
-   ↓
-3. Identify Creek Perdices
-   ├── Group consecutive TOPs (±2.0 points)
-   ├── Calculate cluster statistics
-   └── Detect breakout candles
-   ↓
-4. Generate Unified Chart
-   ├── Plot candlesticks + volume
-   ├── Overlay fractals (blue dots)
-   ├── Draw creek perdices elements
-   └── Save interactive HTML
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 1: Source Data (Full Historical Dataset)                  │
+└─────────────────────────────────────────────────────────────────┘
+  data/es_1min_data_2015_2025.csv  ← Full 10-year historical data
+    │
+    │ Extract single day using:
+    │ python utils/clean_data_one_day_data.py
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 2: Single Day File (Study Target)                         │
+└─────────────────────────────────────────────────────────────────┘
+  data/es_1min_data_2023_03_02.csv  ← One trading day
+    │
+    │ Run analysis pipeline:
+    │ python main.py
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 3: Fractal Detection                                      │
+└─────────────────────────────────────────────────────────────────┘
+  quant_stat/find_tops_and_bottoms.py
+    │
+    │ Output:
+    ↓
+  outputs/fractals_es_1min_data_2023_03_02.csv
+    ├── Columns: index, timestamp, price, type (TOP/BOTTOM)
+    ├── Metrics: distance_usd, distance_bars, swing_size
+    └── Example: 88 fractals (44 TOPs, 44 BOTTOMs)
+    │
+    │ Passed to creek detection:
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 4: Creek Perdices Detection                               │
+└─────────────────────────────────────────────────────────────────┘
+  quant_stat/find_true_tops.py
+    │
+    │ Output:
+    ↓
+  outputs/true_tops_creek_perdices.csv
+    ├── Columns: group, top_index, timestamp, price
+    ├── Cluster info: cluster_size, first_top_idx, last_top_idx
+    └── Example: 9 clusters (cluster_A through cluster_I)
+    │
+    │ Both CSVs passed to visualization:
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 5: Unified Visualization                                  │
+└─────────────────────────────────────────────────────────────────┘
+  plot_minute_data.py
+    │
+    │ Reads:
+    │ - data/es_1min_data_2023_03_02.csv (raw OHLCV)
+    │ - outputs/fractals_*.csv (TOPs/BOTTOMs)
+    │ - outputs/true_tops_creek_perdices.csv (clusters)
+    │
+    │ Generates:
+    ↓
+  charts/ES_1min_2023_03_02.html
+    ├── Candlestick chart with volume
+    ├── Blue dots: Fractals overlay
+    ├── Orange/Green squares: Creek cluster boundaries
+    ├── Blue lines: Creek resistance levels
+    ├── Gray rectangles: Consolidation zones
+    └── Lime triangles: Breakout candles
+```
+
+### Step-by-Step Instructions
+
+#### 1. Extract Single Day from Full Dataset
+
+**Source file**: `data/es_1min_data_2015_2025.csv` (10 years of 1-minute bars)
+
+**Script**: `utils/clean_data_one_day_data.py`
+
+**How to use**:
+```bash
+# Edit the script to change target date:
+TARGET_DATE = '2023-03-02'
+
+# Run extraction:
+python utils/clean_data_one_day_data.py
+```
+
+**Output**: `data/es_1min_data_2023_03_02.csv` (one trading day, ~468 rows)
+
+**Purpose**: Creates focused single-day dataset for detailed fractal analysis
+
+---
+
+#### 2. Detect Fractals (TOPs and BOTTOMs)
+
+**Input**: `data/es_1min_data_2023_03_02.csv`
+
+**Script**: `quant_stat/find_tops_and_bottoms.py` (called by `main.py`)
+
+**Algorithm**:
+- Zigzag method with configurable `CHANGE_PCT` threshold (default 0.10%)
+- Detects local highs (TOPs) and lows (BOTTOMs)
+- Calculates swing metrics (distance in USD, bars, ratios)
+
+**Output**: `outputs/fractals_es_1min_data_2023_03_02.csv`
+
+**CSV Structure**:
+```csv
+index,timestamp,price,type,distance_usd,distance_bars,distance_ratio,swing_size
+551,2023-03-02 09:11:00+00:00,4431.5,TOP,12.75,36,0.354,small
+587,2023-03-02 09:47:00+00:00,4418.75,BOTTOM,8.5,28,0.304,noise
+```
+
+**Configuration** (`main.py`):
+```python
+CHANGE_PCT = 0.10  # 0.10% sensitivity
+# Lower value = more fractals (higher sensitivity)
+# Higher value = fewer fractals (lower sensitivity)
+```
+
+---
+
+#### 3. Detect Creek Perdices (Consolidation Clusters)
+
+**Input**: `outputs/fractals_es_1min_data_2023_03_02.csv` (TOPs only)
+
+**Script**: `quant_stat/find_true_tops.py` (called by `main.py`)
+
+**Algorithm**:
+- Groups **consecutive** TOPs within ±2.0 point tolerance
+- Minimum 2 TOPs per cluster
+- Assigns cluster names: `cluster_A`, `cluster_B`, etc.
+- Tracks first/last TOP timestamps for visualization
+
+**Output**: `outputs/true_tops_creek_perdices.csv`
+
+**CSV Structure**:
+```csv
+group,top_index,timestamp,price,next_top_price,price_diff_next,is_same_range,cluster_size,first_top_idx,last_top_idx,last_top_timestamp
+cluster_A,7,2023-03-02 09:11:00+00:00,4431.5,4429.75,-1.75,True,2,7,9,2023-03-02 10:31:00+00:00
+cluster_A,9,2023-03-02 10:31:00+00:00,4429.75,4436.75,7.00,False,2,7,9,2023-03-02 10:31:00+00:00
+```
+
+**Configuration** (`find_true_tops.py`):
+```python
+TOLERANCE_PRICE = 2.0  # ±2.0 points clustering tolerance
+# Lower = tighter clusters, more separate groups
+# Higher = looser clusters, fewer separate groups
+```
+
+---
+
+#### 4. Generate Unified Chart
+
+**Input**:
+- `data/es_1min_data_2023_03_02.csv` (raw OHLCV data)
+- `outputs/fractals_es_1min_data_2023_03_02.csv` (TOPs/BOTTOMs)
+- `outputs/true_tops_creek_perdices.csv` (creek clusters)
+
+**Script**: `plot_minute_data.py` (called by `main.py`)
+
+**Visualization Layers**:
+1. **Candlesticks**: Green (up) / Red (down) OHLC bars
+2. **Volume**: Blue bars below chart
+3. **Fractals**: Blue dots (size 6) at TOP/BOTTOM prices
+4. **Creek Perdices**:
+   - Orange squares (size 7): First TOP in cluster (+1.0 offset)
+   - Green squares (size 7): Last TOP in cluster (+1.0 offset)
+   - Blue horizontal line (width 1): Creek resistance level
+   - Gray rectangle (opacity 0.2): Consolidation zone
+   - Lime triangle-up (size 9): Breakout candle
+
+**Output**: `charts/ES_1min_2023_03_02.html` (interactive Plotly chart)
+
+**Auto-Detection**: Script automatically overlays creek perdices if CSV exists
+
+---
+
+### File Naming Convention
+
+All output files maintain consistent naming based on input data file:
+
+```
+Input:  data/es_1min_data_2023_03_02.csv
+
+Outputs:
+├── outputs/fractals_es_1min_data_2023_03_02.csv
+├── outputs/true_tops_creek_perdices.csv
+└── charts/ES_1min_2023_03_02.html
+```
+
+### Running the Complete Pipeline
+
+**Single command**:
+```bash
+python main.py
+```
+
+**What happens**:
+1. Reads `DATA_FILE = 'es_1min_data_2023_03_02.csv'` from `main.py`
+2. Calls `find_tops_and_bottoms.py` → Creates fractals CSV
+3. Calls `find_true_tops.py` → Creates creek perdices CSV
+4. Calls `plot_minute_data.py` → Creates interactive chart
+5. Opens chart in browser automatically
+
+**Configuration** (`main.py`):
+```python
+DATA_FILE = 'es_1min_data_2023_03_02.csv'  # Change to analyze different day
+CHANGE_PCT = 0.10                          # Fractal sensitivity
+PLOT_CHART = True                          # Auto-generate chart
+```
+
+### Running Individual Steps
+
+```bash
+# Step 1: Extract single day (manual date selection)
+python utils/clean_data_one_day_data.py
+
+# Step 2: Detect fractals only
+python quant_stat/find_tops_and_bottoms.py
+
+# Step 3: Detect creek perdices only (requires fractals CSV)
+python quant_stat/find_true_tops.py
+
+# Step 4: Plot existing data (requires all CSVs)
+python plot_minute_data.py
+```
+
+---
+
+## 📊 Analysis Workflow Summary
+
+```
+es_1min_data_2015_2025.csv (10 years)
+  → clean_data_one_day_data.py
+    → es_1min_data_2023_03_02.csv (1 day)
+      → find_tops_and_bottoms.py
+        → fractals_es_1min_data_2023_03_02.csv
+          → find_true_tops.py
+            → true_tops_creek_perdices.csv
+              → plot_minute_data.py
+                → ES_1min_2023_03_02.html (chart)
 ```
 
 ## 🎨 Chart Legend

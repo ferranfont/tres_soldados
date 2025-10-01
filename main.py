@@ -1,9 +1,17 @@
-
+# Este es el código principal, lee los datos de 1 dia
+# procede a la búsueda de fractales y guarda los resultados
+# procede a la búsqueda de creek perdices y guarda los resultados
+# finalmente genera un gráfico con los fractales y creek perdices detectados
 
 import sys
 import os
 import pandas as pd
 from pathlib import Path
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+
 sys.path.append(str(Path(__file__).parent))
 from quant_stat.find_tops_and_bottoms import main as detect_fractals
 from plot_minute_data import plot_minute_data
@@ -20,6 +28,11 @@ DATA_FILE = 'es_1min_data_2023_03_02.csv'
 CHANGE_PCT = 0.10  # 0.10% minimum change,  try 0.05 for more sensitivity.
 # Creek perdices clustering tolerance
 TOLERANCE_PRICE = 2.0  # ±2.0 points tolerance for clustering TOPs
+# Master candle parameters
+MASTER_UPPER_TAIL_PCT = 20  # Maximum upper tail percentage (default: 20%)
+# Volume analysis parameters
+VOL_MULTIPL = 1.5  # Volume multiplier threshold (default: 1.5x average)
+VOL_PERCENTILE = 70  # Position filter percentile (default: 70th percentile)
 # Plot chart after detection?
 PLOT_CHART = True  # Set to False to skip plotting
 
@@ -30,11 +43,23 @@ PLOT_CHART = True  # Set to False to skip plotting
 
 if __name__ == "__main__":
     print("="*70)
-    print("TRES SOLDADOS - FRACTAL DETECTION MAIN")
+    print("TRES SOLDADOS - ES FUTURES ANALYSIS PIPELINE")
     print("="*70)
-    print(f"Data file: {DATA_FILE}")
-    print(f"Zigzag sensitivity: {CHANGE_PCT}%")
-    print(f"Plot chart: {'Yes' if PLOT_CHART else 'No'}")
+    print("📊 Configuration:")
+    print(f"  • Data file: {DATA_FILE}")
+    print(f"  • Zigzag sensitivity: {CHANGE_PCT}%")
+    print(f"  • Creek tolerance: ±{TOLERANCE_PRICE} points")
+    print(f"  • Master candle max tail: {MASTER_UPPER_TAIL_PCT}%")
+    print(f"  • Volume threshold: {VOL_MULTIPL}x average")
+    print(f"  • Volume position filter: {VOL_PERCENTILE}th percentile")
+    print(f"  • Generate chart: {'Yes' if PLOT_CHART else 'No'}")
+    print("="*70)
+    print("🎯 Analysis Steps:")
+    print("  1. Zigzag fractal detection (TOPs/BOTTOMs)")
+    print("  2. Creek perdices clustering (consolidation zones)")
+    print("  3. Master candle detection (high-conviction breakouts)")
+    print("  4. High volume analysis (exceptional volume candles)")
+    print("  5. Unified chart generation (all visualizations)")
     print("="*70)
 
     # Run fractal detection
@@ -71,6 +96,48 @@ if __name__ == "__main__":
             print("SUCCESS: Creek Perdices detection completed")
             print(f"Results saved to: {creek_csv}")
             print(f"{'='*70}")
+
+            # Run Master Candle detection
+            print(f"\n{'='*70}")
+            print("DETECTING MASTER CANDLES...")
+            print(f"{'='*70}")
+
+            result_master = subprocess.run(
+                [sys.executable, "-X", "utf8", "quant_stat/find_true_mastercandle.py",
+                 date_str, str(TOLERANCE_PRICE), str(MASTER_UPPER_TAIL_PCT)],
+                cwd=str(Path(__file__).parent),
+                capture_output=False
+            )
+
+            if result_master.returncode == 0:
+                print(f"\n{'='*70}")
+                print("SUCCESS: Master Candle detection completed")
+                print(f"{'='*70}")
+
+                # Run Volume analysis
+                print(f"\n{'='*70}")
+                print("DETECTING TRUE VOLUME CANDLES...")
+                print(f"{'='*70}")
+
+                result_volume = subprocess.run(
+                    [sys.executable, "-X", "utf8", "quant_stat/find_true_volume.py",
+                     date_str, str(TOLERANCE_PRICE), str(VOL_MULTIPL), str(VOL_PERCENTILE)],
+                    cwd=str(Path(__file__).parent),
+                    capture_output=False
+                )
+
+                if result_volume.returncode == 0:
+                    print(f"\n{'='*70}")
+                    print("SUCCESS: Volume analysis completed")
+                    print(f"{'='*70}")
+                else:
+                    print(f"\n{'='*70}")
+                    print("WARNING: Volume analysis failed")
+                    print(f"{'='*70}")
+            else:
+                print(f"\n{'='*70}")
+                print("WARNING: Master Candle detection failed")
+                print(f"{'='*70}")
         else:
             print(f"\n{'='*70}")
             print("WARNING: Creek Perdices detection failed")
@@ -97,9 +164,16 @@ if __name__ == "__main__":
             date_str = DATA_FILE.replace('es_1min_data_', '').replace('.csv', '')
             timeframe = f'1min_{date_str}'
 
-            # Plot chart
+            # Plot chart with zigzag and tolerance parameters
             print(f"\nGenerating chart for {date_str}...")
-            plot_minute_data(SYMBOL, timeframe, df)
+            plot_minute_data(
+                SYMBOL,
+                timeframe,
+                df,
+                date_filter=date_str,
+                tolerance=TOLERANCE_PRICE,
+                change_pct=CHANGE_PCT
+            )
 
             print(f"\nChart generated: charts/{SYMBOL}_{timeframe}.html")
 

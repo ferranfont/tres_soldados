@@ -18,7 +18,26 @@
 - Detects breakout candles (first close above creek line)
 - Groups TOPs into named clusters (cluster_A, cluster_B, etc.)
 
-### 3. Unified Visualization
+### 3. Master Candle Detection
+- Identifies high-conviction breakout candles
+- Criteria:
+  - Close ABOVE creek line (breakout candle)
+  - Range > average range of consolidation zone
+  - Upper tail ≤ 20% of candle range (configurable via `MASTER_UPPER_TAIL_PCT`)
+- Gold asterisk-open symbols on chart
+- Outputs master candle timestamp, range, tail percentage
+
+### 4. High Volume Analysis
+- Identifies candles with exceptional volume in consolidation zones
+- Criteria:
+  - Volume ≥ 1.5x average (configurable via `VOL_MULTIPL`)
+  - Close ≤ 70th percentile of range (configurable via `VOL_PERCENTILE`)
+  - Master candles always included regardless of position
+- Maximum 3 highest volume candles per cluster
+- Deep pink hash symbols 0.5 points below candle lows
+- Outputs volume timestamps and values
+
+### 5. Unified Visualization
 - Candlestick chart with volume bars
 - Blue dots for fractals (TOPs/BOTTOMs)
 - Creek perdices overlay:
@@ -26,7 +45,9 @@
   - Green squares: Last TOP in cluster (+1.0 offset)
   - Blue horizontal line: Creek resistance level
   - Gray rectangle: Consolidation zone (opacity 0.2)
-  - Lime triangle-up: Breakout candle (size 9)
+  - Lime triangle-up: Breakout candle (size 12)
+- Gold asterisk-open: Master candles (size 12)
+- Deep pink hash-open: High volume candles (size 10)
 
 ## Project Structure
 
@@ -40,6 +61,8 @@ tres_soldados/
 ├── quant_stat/                        # Core analysis modules
 │   ├── find_tops_and_bottoms.py              # Zigzag fractal detection
 │   ├── find_true_tops.py                     # Creek perdices clustering
+│   ├── find_true_mastercandle.py             # Master candle detection
+│   ├── find_true_volume.py                   # High volume analysis
 │   └── consolidation_analysis.py             # Statistical analysis
 │
 ├── outputs/                           # Analysis results (CSV)
@@ -67,11 +90,17 @@ tres_soldados/
 - Configurable parameters:
   - `DATA_FILE`: Input data file (default: `es_1min_data_2023_03_02.csv`)
   - `CHANGE_PCT`: Zigzag sensitivity (default: `0.10` = 0.10%)
+  - `TOLERANCE_PRICE`: Creek clustering tolerance (default: `2.0` = ±2.0 points)
+  - `MASTER_UPPER_TAIL_PCT`: Master candle max upper tail (default: `20` = 20%)
+  - `VOL_MULTIPL`: Volume threshold multiplier (default: `1.5` = 1.5x average)
+  - `VOL_PERCENTILE`: Position filter percentile (default: `70` = 70th percentile)
   - `PLOT_CHART`: Enable/disable chart generation (default: `True`)
 - Execution flow:
   1. Detect fractals → `quant_stat/find_tops_and_bottoms.py`
   2. Detect creek perdices → `quant_stat/find_true_tops.py`
-  3. Generate chart → `plot_minute_data.py`
+  3. Detect master candles → `quant_stat/find_true_mastercandle.py`
+  4. Analyze volume → `quant_stat/find_true_volume.py`
+  5. Generate chart → `plot_minute_data.py`
 
 ### Fractal Detection (`quant_stat/find_tops_and_bottoms.py`)
 - Implements zigzag algorithm
@@ -98,7 +127,36 @@ tres_soldados/
           # Start new cluster
   ```
 - Output: `outputs/true_tops_creek_perdices.csv`
-  - Columns: `group, top_index, timestamp, price, next_top_price, price_diff_next, is_same_range, cluster_size, first_top_idx, last_top_idx, last_top_timestamp`
+  - Columns: `group, top_index, timestamp, price, cluster_size, first_top_idx, last_top_idx, breakout_timestamp, creek_price`
+
+### Master Candle Detection (`quant_stat/find_true_mastercandle.py`)
+- Identifies high-conviction breakout candles
+- Algorithm:
+  - Evaluates ONLY the breakout candle (first close above creek)
+  - Checks if range > average range of consolidation zone
+  - Checks if upper tail ≤ `MASTER_UPPER_TAIL_PCT`% of range
+  - Upper tail = high - close (green candles) or high - open (red candles)
+- Output: Adds columns to `true_tops_creek_perdices.csv`
+  - `mastercandle`: "master" or "none"
+  - `mastercandle_timestamp`, `mastercandle_range`, `mastercandle_upper_tail_pct`, `mastercandle_close`
+
+### High Volume Analysis (`quant_stat/find_true_volume.py`)
+- Identifies exceptional volume candles in consolidation zones
+- Algorithm:
+  ```python
+  # STEP 1: Calculate percentile threshold from close prices
+  percentile_threshold = consolidation_candles['close'].quantile(VOL_PERCENTILE / 100.0)
+
+  # STEP 2: Filter by position FIRST (lower percentile OR master candle)
+  position_filtered = candles[(close <= percentile_threshold) | (is_master_candle)]
+
+  # STEP 3: From position-filtered, find high volume (>= VOL_MULTIPL x avg)
+  # STEP 4: Sort by volume, take top 3
+  ```
+- Output: Adds columns to `true_tops_creek_perdices.csv`
+  - `true_volume1_time`, `true_volume1_value`
+  - `true_volume2_time`, `true_volume2_value`
+  - `true_volume3_time`, `true_volume3_value`
 
 ### Unified Visualization (`plot_minute_data.py`)
 - Generates interactive Plotly chart
@@ -110,9 +168,11 @@ tres_soldados/
   - Creek perdices:
     - Orange squares (size 7) at first TOP + 1.0 offset
     - Green squares (size 7) at last TOP + 1.0 offset
-    - Blue horizontal line (width 1) at average price
-    - Gray rectangle (opacity 0.2) from creek to lowest low
-    - Lime triangle-up (size 9) at breakout candle close
+    - Blue horizontal line (width 1) at creek resistance level
+    - Gray rectangle (opacity 0.2) consolidation zone
+    - Lime triangle-up (size 12) at breakout candle close
+  - Master candles: Gold asterisk-open (size 12) at 2 points below low
+  - High volume: Deep pink hash-open (size 10) at 0.5 points below low
 - Output: `charts/ES_1min_*.html`
 
 ### Configuration (`config.py`)
