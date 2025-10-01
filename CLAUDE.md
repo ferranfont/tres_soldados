@@ -49,6 +49,16 @@
 - Gold asterisk-open: Master candles (size 12)
 - Deep pink hash-open: High volume candles (size 10)
 
+### 6. Trading Strategies (strat_OM/)
+- **Strategy 1: Creek Crossover Above VWAP**
+  - Entry signal: Creek price > VWAP at breakout
+  - Entry price: Master candle close OR breakout candle close
+  - Target: +5 points from entry
+  - Stop Loss: -5 points from entry
+  - Exit: End of day if position still open
+  - Outputs: Trading record CSV, HTML report, terminal summary
+  - Performance tracking: Win rate, P&L, exit reasons
+
 ## Project Structure
 
 ```
@@ -65,10 +75,15 @@ tres_soldados/
 │   ├── find_true_volume.py                   # High volume analysis
 │   └── consolidation_analysis.py             # Statistical analysis
 │
+├── strat_OM/                          # Trading strategies (Order Management)
+│   ├── strat_1_crossover_creek.py            # Strategy 1: Creek crossover above VWAP
+│   └── README.md                              # Strategy documentation
+│
 ├── outputs/                           # Analysis results (CSV)
 │   ├── fractals_es_1min_data_*.csv           # Detected fractals
 │   ├── true_tops_creek_perdices.csv          # Creek clusters
-│   └── temp_top_consolidation_stats.csv      # Temp analysis data
+│   ├── trading_record_strat1_*.csv           # Trading records
+│   └── trading_report_strat1_*.html          # Performance reports
 │
 ├── charts/                            # Generated HTML charts (gitignored)
 │
@@ -157,6 +172,36 @@ tres_soldados/
   - `true_volume1_time`, `true_volume1_value`
   - `true_volume2_time`, `true_volume2_value`
   - `true_volume3_time`, `true_volume3_value`
+
+### Trading Strategy 1 (`strat_OM/strat_1_crossover_creek.py`)
+- Automated trading strategy based on creek crossover above VWAP
+- Entry Logic:
+  ```python
+  if creek_price > vwap_at_breakout:
+      # Determine entry price
+      if is_master_candle:
+          entry_price = master_candle_close
+      else:
+          entry_price = breakout_candle_close
+
+      # Set targets
+      target = entry_price + 5.0
+      stop = entry_price - 5.0
+  ```
+- Exit Logic:
+  - Take Profit: Price >= target (+5 points)
+  - Stop Loss: Price <= stop (-5 points)
+  - End of Day: Close at market if still open
+- Outputs:
+  - `outputs/trading_record_strat1_crossover_{date}.csv`: All trades with entry/exit details
+  - `outputs/trading_report_strat1_crossover_{date}.html`: Performance report with statistics
+  - Terminal summary: Win rate, total P&L, exit reasons
+- Performance Metrics:
+  - Total trades, winners/losers count
+  - Win rate percentage
+  - Total P&L in points
+  - Average win/loss
+  - Exit reason breakdown (TAKE_PROFIT, STOP_LOSS, CLOSE_EOD)
 
 ### Unified Visualization (`plot_minute_data.py`)
 - Generates interactive Plotly chart
@@ -253,6 +298,21 @@ python quant_stat/find_true_tops.py
 # Plot existing data
 python plot_minute_data.py
 ```
+
+### Run Trading Strategy
+```bash
+# Strategy 1: Creek crossover above VWAP
+python strat_OM/strat_1_crossover_creek.py 2023_03_02 2.0
+
+# Parameters:
+# - arg1: date string (YYYY_MM_DD format)
+# - arg2: tolerance (default: 2.0)
+```
+
+Output includes:
+- Trading record CSV with all trades
+- HTML performance report (auto-opens in browser)
+- Terminal summary with win rate and P&L
 
 ### Adjust Sensitivity
 

@@ -39,9 +39,15 @@ tres_soldados/
 │   ├── find_true_volume.py                   # High volume analysis
 │   └── consolidation_analysis.py             # Statistical analysis tools
 │
+├── strat_OM/                          # Trading strategies (Order Management)
+│   ├── strat_1_crossover_creek.py            # Strategy 1: Creek crossover above VWAP
+│   └── README.md                              # Strategy documentation
+│
 ├── outputs/                           # Analysis results (CSV)
 │   ├── fractals_*.csv                        # Detected fractals
-│   └── true_tops_creek_perdices.csv          # Creek perdices clusters
+│   ├── true_tops_creek_perdices.csv          # Creek perdices clusters
+│   ├── trading_record_strat1_*.csv           # Trading records
+│   └── trading_report_strat1_*.html          # Performance reports
 │
 ├── charts/                            # Generated charts (gitignored)
 │
@@ -133,6 +139,36 @@ cluster_A, 7, 2023-03-02 09:11:00, 4431.5, 4429.75, 2, 2023-03-02 10:31:00
 - Fully interactive (zoom, pan, hover)
 - Exportable to PNG
 - Auto-opens in browser
+
+### Trading Strategies
+
+**Strategy 1: Creek Crossover Above VWAP**
+
+Entry when creek perdices level > VWAP:
+```bash
+python strat_OM/strat_1_crossover_creek.py 2023_03_02 2.0
+```
+
+Strategy parameters:
+- **Entry**: Master candle close or breakout candle close
+- **Target**: +5 points
+- **Stop Loss**: -5 points
+- **Exit**: Close at end of day if still open
+
+Output:
+- Trading record CSV with all trade details
+- HTML performance report with statistics
+- Terminal summary with win rate and P&L
+
+Example output:
+```
+Total Trades: 9
+Winners: 5 | Losers: 4 | Breakeven: 0
+Win Rate: 55.6%
+Total P&L: +5.00 points
+```
+
+See [strat_OM/README.md](strat_OM/README.md) for detailed strategy documentation.
 
 ### Advanced Usage
 

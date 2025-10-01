@@ -23,7 +23,7 @@ from config import DATA_DIR, SYMBOL
 # ====================================================
 
 # Data file to analyze (must be in data/ folder) - create it before running this script
-DATA_FILE = 'es_1min_data_2023_03_10.csv'
+DATA_FILE = 'es_1min_data_2023_03_02.csv'
 # Zigzag detection sensitivity
 CHANGE_PCT = 0.10  # 0.10% minimum change,  try 0.05 for more sensitivity.
 # Creek perdices clustering tolerance

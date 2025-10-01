@@ -32,7 +32,7 @@ def load_fractals_csv(fractal_csv_path):
         return None
 
 
-def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_csv=None, same_range_tops_csv=None, date_filter=None, tolerance=None, change_pct=None):
+def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_csv=None, same_range_tops_csv=None, date_filter=None, tolerance=None, change_pct=None, trades_csv=None):
     """
     Función especializada para graficar datos de minutos con etiquetas de hora en el eje X
 
@@ -46,6 +46,7 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         date_filter: Date string (YYYY_MM_DD) to filter creek perdices CSV
         tolerance: Tolerance value to construct creek perdices filename
         change_pct: Zigzag change percentage for chart title
+        trades_csv: Optional path to trades CSV file for entry/exit lines
     """
     html_path = get_chart_path(symbol, timeframe)
 
@@ -577,6 +578,77 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         opacity=0.95,
         name='Volumen'
     ), row=2, col=1)
+
+    # ====================================================
+    # TRADES: Entry/Exit Lines (Dashed Grey)
+    # ====================================================
+    if trades_csv and os.path.exists(trades_csv):
+        try:
+            df_trades = pd.read_csv(trades_csv)
+            df_trades['entry_time'] = pd.to_datetime(df_trades['entry_time'])
+            df_trades['exit_time'] = pd.to_datetime(df_trades['exit_time'])
+            print(f"📊 Loaded {len(df_trades)} trades from {os.path.basename(trades_csv)}")
+
+            for idx, trade in df_trades.iterrows():
+                entry_time = trade['entry_time']
+                entry_price = trade['entry_price']
+                exit_time = trade['exit_time']
+                exit_price = trade['exit_price']
+
+                # Determine line color based on exit reason
+                exit_reason = trade['exit_reason']
+                if exit_reason == 'TAKE_PROFIT':
+                    line_color = 'green'
+                elif exit_reason == 'STOP_LOSS':
+                    line_color = 'red'
+                else:  # CLOSE_EOD
+                    line_color = 'grey'
+
+                # Draw solid line from entry to exit
+                fig.add_trace(go.Scatter(
+                    x=[entry_time, exit_time],
+                    y=[entry_price, exit_price],
+                    mode='lines',
+                    line=dict(
+                        color=line_color,
+                        width=1,
+                        dash='solid'
+                    ),
+                    name='Trades' if idx == 0 else None,
+                    hovertemplate=(
+                        f"Trade #{trade['trade_id']} ({trade['entry_type']})<br>"
+                        f"Entry: ${entry_price:.2f} @ %{{x}}<br>"
+                        f"Exit: ${exit_price:.2f}<br>"
+                        f"P&L: {trade['pnl_points']:+.2f} pts (${trade['pnl_usd']:+,.0f})<br>"
+                        f"Exit: {trade['exit_reason']}<extra></extra>"
+                    ),
+                    showlegend=(idx == 0)
+                ), row=1, col=1)
+
+                # Add red triangle-down marker at exit point
+                fig.add_trace(go.Scatter(
+                    x=[exit_time],
+                    y=[exit_price],
+                    mode='markers',
+                    marker=dict(
+                        color='red',
+                        size=10,
+                        symbol='triangle-down',
+                        line=dict(color='darkred', width=1)
+                    ),
+                    name='Exit' if idx == 0 else None,
+                    hovertemplate=(
+                        f"EXIT - Trade #{trade['trade_id']}<br>"
+                        f"Price: ${exit_price:.2f}<br>"
+                        f"Time: %{{x}}<br>"
+                        f"Reason: {trade['exit_reason']}<br>"
+                        f"P&L: {trade['pnl_points']:+.2f} pts (${trade['pnl_usd']:+,.0f})<extra></extra>"
+                    ),
+                    showlegend=(idx == 0)
+                ), row=1, col=1)
+
+        except Exception as e:
+            print(f"⚠️ Error loading trades CSV: {e}")
 
     # Build title with parameters including day of week
     # Extract date from timeframe to get day of week
