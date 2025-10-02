@@ -259,16 +259,35 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
                 else:
                     # Cluster NOT crossed yet
                     if pending_cluster_idx is not None:
-                        # Cancel previous pending signal - new one appeared
                         pending_cluster = df_true_tops.loc[pending_cluster_idx]
-                        print(f"   ❌ {pending_cluster['group']}: CANCELLED - {cluster['group']} appeared")
-                        if pending_cluster_idx in clusters_to_keep:
-                            clusters_to_keep.remove(pending_cluster_idx)
+                        pending_creek_price = pending_cluster['creek_price']
+                        pending_last_top_time = pd.to_datetime(pending_cluster['last_top_timestamp'])
 
-                    # This becomes the new pending signal
-                    pending_cluster_idx = idx
-                    clusters_to_keep.append(idx)
-                    print(f"   ⏳ {cluster['group']}: PENDING at {first_top_time}")
+                        # Check if pending was crossed BEFORE this new signal appeared
+                        candles_between = df[(df['date'] > pending_last_top_time) & (df['date'] <= first_top_time)]
+                        pending_crossed_before_new = len(candles_between[candles_between['close'] > pending_creek_price]) > 0
+
+                        if pending_crossed_before_new:
+                            # Pending was crossed before new signal - keep pending and don't replace
+                            print(f"   ✅ {pending_cluster['group']}: Already CROSSED before {cluster['group']} appeared - KEEP BOTH")
+                            # Add this new cluster as well
+                            clusters_to_keep.append(idx)
+                            # Note: pending_cluster_idx stays the same, but we're keeping both
+                        else:
+                            # Pending NOT crossed before new signal - cancel it
+                            print(f"   ❌ {pending_cluster['group']}: CANCELLED - {cluster['group']} appeared, pending not crossed")
+                            if pending_cluster_idx in clusters_to_keep:
+                                clusters_to_keep.remove(pending_cluster_idx)
+
+                            # This becomes the new pending signal
+                            pending_cluster_idx = idx
+                            clusters_to_keep.append(idx)
+                            print(f"   ⏳ {cluster['group']}: NEW PENDING at {first_top_time}")
+                    else:
+                        # No pending signal - this becomes pending
+                        pending_cluster_idx = idx
+                        clusters_to_keep.append(idx)
+                        print(f"   ⏳ {cluster['group']}: PENDING at {first_top_time}")
 
             # Filter to only clusters we want to keep
             df_true_tops = df_true_tops.loc[clusters_to_keep].reset_index(drop=True)
