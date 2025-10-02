@@ -218,61 +218,61 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
             df_true_tops = df_true_tops.loc[valid_clusters].reset_index(drop=True)
             print(f"✅ Clusters meeting entry conditions (creek>VWAP AND first_top>VWAP): {len(df_true_tops)}")
 
-        # FILTER PENDING SIGNALS: Cancel older non-triggered clusters when newer one appears
-        # Logic: If a cluster has NOT been crossed yet, and a newer cluster appears, cancel the older one
-        if len(df_true_tops) > 0 and 'breakout_timestamp' in df_true_tops.columns:
-            print(f"\n🔄 Applying pending signal cancellation logic...")
+        # FILTER PENDING SIGNALS: Sequential temporal processing
+        # Process clusters chronologically and cancel pending when new one appears BEFORE crossover
+        if len(df_true_tops) > 0 and 'last_top_timestamp' in df_true_tops.columns:
+            print(f"\n🔄 Applying sequential pending signal cancellation...")
+
+            # Sort by first TOP timestamp to process chronologically
+            df_true_tops = df_true_tops.sort_values('timestamp').reset_index(drop=True)
 
             clusters_to_keep = []
+            pending_cluster_idx = None  # Track current pending signal
 
             for idx, cluster in df_true_tops.iterrows():
-                breakout_time = pd.to_datetime(cluster['breakout_timestamp'])
+                first_top_time = pd.to_datetime(cluster['timestamp'])
+                last_top_time = pd.to_datetime(cluster['last_top_timestamp'])
                 creek_price = cluster['creek_price']
 
-                # Check if breakout actually happened (price crossed creek)
-                breakout_candles = df[df['date'] == breakout_time]
-                if len(breakout_candles) > 0:
-                    breakout_close = breakout_candles.iloc[0]['close']
-                    is_crossed = breakout_close > creek_price
-                else:
-                    is_crossed = False
+                # Check if ANY candle AFTER last TOP closed above creek
+                candles_after_last_top = df[df['date'] > last_top_time]
+                crossed_candles = candles_after_last_top[candles_after_last_top['close'] > creek_price]
+                is_crossed = len(crossed_candles) > 0
 
                 if is_crossed:
-                    # Cluster was CROSSED - always keep it
+                    first_cross_time = crossed_candles.iloc[0]['date']
+
+                    # If there was a pending signal, check if this new signal appeared BEFORE pending crossed
+                    if pending_cluster_idx is not None:
+                        pending_cluster = df_true_tops.loc[pending_cluster_idx]
+
+                        # If new signal's first TOP appeared BEFORE pending was crossed, cancel pending
+                        if first_top_time < first_cross_time:
+                            print(f"   ❌ {pending_cluster['group']}: CANCELLED - {cluster['group']} appeared at {first_top_time} before cross at {first_cross_time}")
+                            if pending_cluster_idx in clusters_to_keep:
+                                clusters_to_keep.remove(pending_cluster_idx)
+
+                    # This cluster crossed - keep it and clear pending
                     clusters_to_keep.append(idx)
-                    print(f"   ✅ {cluster['group']}: CROSSED at {breakout_time} - KEEP")
+                    pending_cluster_idx = None
+                    print(f"   ✅ {cluster['group']}: CROSSED at {first_cross_time} - KEEP")
                 else:
-                    # Cluster NOT crossed yet - check if there's a newer non-crossed cluster
-                    newer_clusters = df_true_tops[df_true_tops['timestamp'] > cluster['timestamp']]
+                    # Cluster NOT crossed yet
+                    if pending_cluster_idx is not None:
+                        # Cancel previous pending signal - new one appeared
+                        pending_cluster = df_true_tops.loc[pending_cluster_idx]
+                        print(f"   ❌ {pending_cluster['group']}: CANCELLED - {cluster['group']} appeared")
+                        if pending_cluster_idx in clusters_to_keep:
+                            clusters_to_keep.remove(pending_cluster_idx)
 
-                    # Check if any newer cluster also meets entry conditions and is not crossed
-                    has_newer_pending = False
-                    for _, newer_cluster in newer_clusters.iterrows():
-                        newer_breakout_time = pd.to_datetime(newer_cluster['breakout_timestamp'])
-                        newer_creek_price = newer_cluster['creek_price']
-
-                        newer_breakout_candles = df[df['date'] == newer_breakout_time]
-                        if len(newer_breakout_candles) > 0:
-                            newer_breakout_close = newer_breakout_candles.iloc[0]['close']
-                            newer_is_crossed = newer_breakout_close > newer_creek_price
-                        else:
-                            newer_is_crossed = False
-
-                        if not newer_is_crossed:
-                            has_newer_pending = True
-                            break
-
-                    if has_newer_pending:
-                        # There's a newer non-crossed cluster - CANCEL this one
-                        print(f"   ❌ {cluster['group']}: NOT CROSSED, newer pending signal exists - CANCELLED")
-                    else:
-                        # This is the most recent non-crossed cluster - KEEP it
-                        clusters_to_keep.append(idx)
-                        print(f"   ✅ {cluster['group']}: NOT CROSSED but most recent - KEEP")
+                    # This becomes the new pending signal
+                    pending_cluster_idx = idx
+                    clusters_to_keep.append(idx)
+                    print(f"   ⏳ {cluster['group']}: PENDING at {first_top_time}")
 
             # Filter to only clusters we want to keep
             df_true_tops = df_true_tops.loc[clusters_to_keep].reset_index(drop=True)
-            print(f"✅ Final clusters after pending signal cancellation: {len(df_true_tops)}")
+            print(f"✅ Final clusters after sequential cancellation: {len(df_true_tops)}")
 
         print(f"🎯 Plotting {len(df_true_tops)} Creek Perdices clusters...")
 
