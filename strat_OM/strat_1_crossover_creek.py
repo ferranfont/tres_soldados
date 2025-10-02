@@ -25,26 +25,21 @@ if sys.platform == 'win32':
 sys.path.append(str(Path(__file__).parent.parent))
 from config import DATA_DIR, SYMBOL
 from plot_minute_data import plot_minute_data
+BASE_DIR = Path(__file__).parent.parent
 
 # ====================================================
 # 📊 CONFIGURATION
 # ====================================================
 
-BASE_DIR = Path(__file__).parent.parent
-
-# ====================================================
-# ⚙️ USER CONFIGURATION - CHANGE THESE PARAMETERS
-# ====================================================
-
 # Date to analyze (format: YYYY_MM_DD)
-DATE = '2023_03_13'  # Change this to analyze different dates
+DATE = '2023_03_02'  # Change this to analyze different dates
 
 # Tolerance for creek perdices clustering (in points)
 TOLERANCE = 2.0
 
 # Strategy parameters
 TARGET_POINTS = 5.0  # Target profit in points
-STOP_POINTS = 5.0    # Stop loss in points
+STOP_POINTS = 2.0    # Stop loss in points
 POINT_VALUE = 50.0   # 1 ES point = $50 USD
 
 # ====================================================
@@ -330,6 +325,22 @@ for idx, cluster in df_creek.iterrows():
         pnl_pct = (pnl / entry_price) * 100
         pnl_usd = pnl * POINT_VALUE
 
+        # Calculate time in trade (in minutes)
+        time_in_trade = (exit_time - entry_time).total_seconds() / 60
+
+        # Get cluster information
+        cluster_size = cluster['cluster_size'] if 'cluster_size' in cluster else 0
+        first_top_idx = cluster['first_top_idx'] if 'first_top_idx' in cluster else 0
+        last_top_idx = cluster['last_top_idx'] if 'last_top_idx' in cluster else 0
+
+        # Calculate number of bars in consolidation (from first TOP to last TOP)
+        consolidation_candles = df_candles[(df_candles['date'] >= first_top_time) &
+                                          (df_candles['date'] <= cluster['last_top_timestamp'])]
+        num_bars_consolidation = len(consolidation_candles)
+
+        # Number of TOPs in cluster is cluster_size
+        num_tops = cluster_size
+
         # Record trade
         trades.append({
             'trade_id': trade_id,
@@ -340,13 +351,19 @@ for idx, cluster in df_creek.iterrows():
             'exit_time': exit_time,
             'exit_price': exit_price,
             'exit_reason': exit_reason,
+            'time_in_trade_minutes': round(time_in_trade, 2),
             'target': target_price,
             'stop': stop_price,
             'pnl_points': pnl,
             'pnl_usd': pnl_usd,
             'pnl_percent': pnl_pct,
             'creek_price': creek_price,
-            'vwap_at_entry': vwap_value
+            'first_top_price': first_top_price,
+            'vwap_at_entry': vwap_value,
+            'num_tops_cluster': num_tops,
+            'num_bars_consolidation': num_bars_consolidation,
+            'first_top_time': first_top_time,
+            'last_top_time': cluster['last_top_timestamp']
         })
 
         trade_id += 1
@@ -645,6 +662,68 @@ if len(trades) > 0:
     print(f"  Stop Loss: {stop_loss_count}")
     print(f"  Close EOD: {eod_count}")
     print("="*70)
+
+    # ====================================================
+    # 💾 SAVE SUMMARY FILE (ONE FILE PER STRATEGY)
+    # ====================================================
+
+    SUMMARY_CSV = TRACKING_DIR / 'tracking_record_SUMMARY_strat1_crossover.csv'
+
+    # Calculate additional statistics
+    avg_time_in_trade = df_trades['time_in_trade_minutes'].mean()
+    max_win = df_trades[df_trades['pnl_points'] > 0]['pnl_points'].max() if winning_trades > 0 else 0
+    max_loss = df_trades[df_trades['pnl_points'] < 0]['pnl_points'].min() if losing_trades > 0 else 0
+    profit_factor = abs(df_trades[df_trades['pnl_points'] > 0]['pnl_points'].sum() / df_trades[df_trades['pnl_points'] < 0]['pnl_points'].sum()) if losing_trades > 0 and df_trades[df_trades['pnl_points'] < 0]['pnl_points'].sum() != 0 else 0
+
+    # Calculate total cluster statistics
+    avg_tops_per_cluster = df_trades['num_tops_cluster'].mean()
+    avg_bars_consolidation = df_trades['num_bars_consolidation'].mean()
+
+    # Create new row with execution timestamp
+    execution_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    summary_row = {
+        'execution_timestamp': execution_timestamp,
+        'date': date_str,
+        'total_trades': total_trades,
+        'winning_trades': winning_trades,
+        'losing_trades': losing_trades,
+        'breakeven_trades': breakeven_trades,
+        'win_rate_pct': round(win_rate, 2),
+        'total_pnl_points': round(total_pnl, 2),
+        'total_pnl_usd': round(total_pnl_usd, 2),
+        'avg_win_points': round(avg_win, 2),
+        'avg_win_usd': round(avg_win_usd, 2),
+        'avg_loss_points': round(avg_loss, 2),
+        'avg_loss_usd': round(avg_loss_usd, 2),
+        'max_win_points': round(max_win, 2),
+        'max_loss_points': round(max_loss, 2),
+        'profit_factor': round(profit_factor, 2),
+        'avg_time_in_trade_minutes': round(avg_time_in_trade, 2),
+        'avg_tops_per_cluster': round(avg_tops_per_cluster, 2),
+        'avg_bars_consolidation': round(avg_bars_consolidation, 2),
+        'take_profit_count': take_profit_count,
+        'stop_loss_count': stop_loss_count,
+        'close_eod_count': eod_count,
+        'target_points': TARGET_POINTS,
+        'stop_points': STOP_POINTS,
+        'tolerance': float(tolerance)
+    }
+
+    df_new_row = pd.DataFrame([summary_row])
+
+    # Append to existing file or create new one
+    if SUMMARY_CSV.exists():
+        # Read existing summary
+        df_existing = pd.read_csv(SUMMARY_CSV)
+        # Append new row
+        df_summary = pd.concat([df_existing, df_new_row], ignore_index=True)
+        df_summary.to_csv(SUMMARY_CSV, index=False)
+        print(f"\n💾 Summary appended to: {SUMMARY_CSV}")
+    else:
+        # Create new summary file
+        df_new_row.to_csv(SUMMARY_CSV, index=False)
+        print(f"\n💾 Summary created: {SUMMARY_CSV}")
 
     # ====================================================
     # 📈 GENERATE CHART WITH TRADES
