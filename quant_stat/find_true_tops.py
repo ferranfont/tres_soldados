@@ -30,7 +30,7 @@ import glob
 import re
 
 # Find fractals file matching the specific date
-fractals_pattern = str(BASE_DIR / 'outputs' / f'fractals_es_1min_data_{date_str}_zigzag_*.csv')
+fractals_pattern = str(BASE_DIR / 'outputs' / 'fractal_tops_and_bottoms' / f'fractals_es_1min_data_{date_str}_zigzag_*.csv')
 fractals_files = glob.glob(fractals_pattern)
 
 if not fractals_files:
@@ -41,13 +41,13 @@ if not fractals_files:
 FRACTALS_CSV = Path(fractals_files[0])
 print(f"📂 Using fractals file: {FRACTALS_CSV.name}")
 
-CANDLES_CSV = BASE_DIR / 'data' / f'es_1min_data_{date_str}.csv'
+CANDLES_CSV = BASE_DIR / 'data' / 'daily_subdata' / f'es_1min_data_{date_str}.csv'
 
 if not CANDLES_CSV.exists():
     print(f"ERROR: Candles file not found: {CANDLES_CSV}")
     sys.exit(1)
 
-OUTPUT_CSV = BASE_DIR / 'outputs' / f'true_tops_creek_perdices_{date_str}_tol_{TOLERANCE_PRICE}.csv'
+OUTPUT_CSV = BASE_DIR / 'outputs' / 'fractal_tops_and_bottoms' / f'true_tops_creek_perdices_{date_str}_tol_{TOLERANCE_PRICE}.csv'
 
 # ====================================================
 # 📥 LOAD DATA

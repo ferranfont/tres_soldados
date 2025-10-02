@@ -17,7 +17,16 @@ from quant_stat.fractal_detector import UnifiedZigzagDetector, FractalType
 
 def load_es_data(filename: str) -> pd.DataFrame:
     """Load ES minute data from file"""
-    file_path = os.path.join(str(DATA_DIR), filename)
+    # Try daily_subdata subfolder first, then root data folder
+    file_path_daily = os.path.join(str(DATA_DIR), 'daily_subdata', filename)
+    file_path_root = os.path.join(str(DATA_DIR), filename)
+
+    if os.path.exists(file_path_daily):
+        file_path = file_path_daily
+    elif os.path.exists(file_path_root):
+        file_path = file_path_root
+    else:
+        file_path = file_path_root  # Will raise error below
 
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Data file not found: {file_path}")
@@ -140,8 +149,8 @@ def save_fractals_to_csv(fractals: list, output_filename: str) -> str:
     Returns:
         Path to saved file
     """
-    # Create outputs directory if it doesn't exist
-    output_dir = "outputs"
+    # Create outputs/fractal_tops_and_bottoms directory if it doesn't exist
+    output_dir = os.path.join("outputs", "fractal_tops_and_bottoms")
     os.makedirs(output_dir, exist_ok=True)
 
     # Convert to DataFrame

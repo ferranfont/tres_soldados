@@ -26,9 +26,9 @@ VOL_MULTIPL = float(sys.argv[3]) if len(sys.argv) > 3 else 1.5  # Default: 1.5x 
 VOL_PERCENTILE = int(sys.argv[4]) if len(sys.argv) > 4 else 70  # Default: 70th percentile
 
 # File paths
-CREEK_CSV = BASE_DIR / 'outputs' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
-CANDLES_CSV = BASE_DIR / 'data' / f'es_1min_data_{date_str}.csv'
-OUTPUT_CSV = BASE_DIR / 'outputs' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
+CREEK_CSV = BASE_DIR / 'outputs' / 'fractal_tops_and_bottoms' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
+CANDLES_CSV = BASE_DIR / 'data' / 'daily_subdata' / f'es_1min_data_{date_str}.csv'
+OUTPUT_CSV = BASE_DIR / 'outputs' / 'fractal_tops_and_bottoms' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
 
 # ====================================================
 # 📥 LOAD DATA

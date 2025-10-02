@@ -60,7 +60,7 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         df_fractals = load_fractals_csv(fractals_csv)
     else:
         # Try to auto-detect fractals CSV based on timeframe
-        outputs_dir = 'outputs'
+        outputs_dir = os.path.join('outputs', 'fractal_tops_and_bottoms')
         if os.path.exists(outputs_dir):
             # Extract date from timeframe (e.g., '1min_2023_03_01' -> '2023_03_01')
             date_part = timeframe.replace('1min_', '')
@@ -168,12 +168,12 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
 
     if date_filter and tolerance is not None:
         # Use exact filename matching the date and tolerance
-        true_tops_csv = f'outputs/true_tops_creek_perdices_{date_filter}_tol_{tolerance}.csv'
+        true_tops_csv = f'outputs/fractal_tops_and_bottoms/true_tops_creek_perdices_{date_filter}_tol_{tolerance}.csv'
         print(f"🔍 Looking for creek perdices file: {true_tops_csv}")
     else:
         # Fallback: look for any creek perdices CSV
-        creek_csvs = sorted(glob.glob('outputs/true_tops_creek_perdices_*.csv'), key=os.path.getmtime, reverse=True)
-        true_tops_csv = creek_csvs[0] if creek_csvs else 'outputs/true_tops_creek_perdices.csv'
+        creek_csvs = sorted(glob.glob('outputs/fractal_tops_and_bottoms/true_tops_creek_perdices_*.csv'), key=os.path.getmtime, reverse=True)
+        true_tops_csv = creek_csvs[0] if creek_csvs else 'outputs/fractal_tops_and_bottoms/true_tops_creek_perdices.csv'
 
     if os.path.exists(true_tops_csv):
         df_true_tops = pd.read_csv(true_tops_csv)
@@ -183,6 +183,96 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
         # Handle master candle timestamp if present
         if 'mastercandle_timestamp' in df_true_tops.columns:
             df_true_tops['mastercandle_timestamp'] = pd.to_datetime(df_true_tops['mastercandle_timestamp'], errors='coerce')
+
+        # FILTER CLUSTERS: Only plot clusters that meet entry conditions
+        # Conditions: creek_price > VWAP AND first_top_price > VWAP (at FIRST TOP time, not breakout)
+        if 'ema' in df.columns and 'timestamp' in df_true_tops.columns and 'creek_price' in df_true_tops.columns:
+            print(f"📊 Total clusters loaded: {len(df_true_tops)}")
+
+            valid_clusters = []
+            for idx, cluster in df_true_tops.iterrows():
+                creek_price = cluster['creek_price']
+                first_top_price = cluster['price']
+                first_top_time = pd.to_datetime(cluster['timestamp'])  # Momento del cuadradito naranja
+
+                # Get VWAP at FIRST TOP time (cuando se forma el cuadradito naranja)
+                vwap_at_first_top = df[df['date'] == first_top_time]
+                if len(vwap_at_first_top) > 0:
+                    vwap_value = vwap_at_first_top.iloc[0]['ema']
+
+                    # Check BOTH conditions with AND: creek > VWAP AND first_top > VWAP
+                    condition1 = creek_price > vwap_value
+                    condition2 = first_top_price > vwap_value
+
+                    if pd.notna(vwap_value) and condition1 and condition2:
+                        valid_clusters.append(idx)
+                        print(f"   ✅ {cluster['group']}: Creek ${creek_price:.2f} > VWAP ${vwap_value:.2f} AND First TOP ${first_top_price:.2f} > VWAP ${vwap_value:.2f} (at {first_top_time})")
+                    else:
+                        # Debug: show which condition failed
+                        if not condition1:
+                            print(f"   ❌ {cluster['group']}: Creek ${creek_price:.2f} <= VWAP ${vwap_value:.2f} - FILTERED OUT")
+                        if not condition2:
+                            print(f"   ❌ {cluster['group']}: First TOP ${first_top_price:.2f} <= VWAP ${vwap_value:.2f} (at {first_top_time}) - FILTERED OUT")
+
+            # Filter dataframe to only valid clusters
+            df_true_tops = df_true_tops.loc[valid_clusters].reset_index(drop=True)
+            print(f"✅ Clusters meeting entry conditions (creek>VWAP AND first_top>VWAP): {len(df_true_tops)}")
+
+        # FILTER PENDING SIGNALS: Cancel older non-triggered clusters when newer one appears
+        # Logic: If a cluster has NOT been crossed yet, and a newer cluster appears, cancel the older one
+        if len(df_true_tops) > 0 and 'breakout_timestamp' in df_true_tops.columns:
+            print(f"\n🔄 Applying pending signal cancellation logic...")
+
+            clusters_to_keep = []
+
+            for idx, cluster in df_true_tops.iterrows():
+                breakout_time = pd.to_datetime(cluster['breakout_timestamp'])
+                creek_price = cluster['creek_price']
+
+                # Check if breakout actually happened (price crossed creek)
+                breakout_candles = df[df['date'] == breakout_time]
+                if len(breakout_candles) > 0:
+                    breakout_close = breakout_candles.iloc[0]['close']
+                    is_crossed = breakout_close > creek_price
+                else:
+                    is_crossed = False
+
+                if is_crossed:
+                    # Cluster was CROSSED - always keep it
+                    clusters_to_keep.append(idx)
+                    print(f"   ✅ {cluster['group']}: CROSSED at {breakout_time} - KEEP")
+                else:
+                    # Cluster NOT crossed yet - check if there's a newer non-crossed cluster
+                    newer_clusters = df_true_tops[df_true_tops['timestamp'] > cluster['timestamp']]
+
+                    # Check if any newer cluster also meets entry conditions and is not crossed
+                    has_newer_pending = False
+                    for _, newer_cluster in newer_clusters.iterrows():
+                        newer_breakout_time = pd.to_datetime(newer_cluster['breakout_timestamp'])
+                        newer_creek_price = newer_cluster['creek_price']
+
+                        newer_breakout_candles = df[df['date'] == newer_breakout_time]
+                        if len(newer_breakout_candles) > 0:
+                            newer_breakout_close = newer_breakout_candles.iloc[0]['close']
+                            newer_is_crossed = newer_breakout_close > newer_creek_price
+                        else:
+                            newer_is_crossed = False
+
+                        if not newer_is_crossed:
+                            has_newer_pending = True
+                            break
+
+                    if has_newer_pending:
+                        # There's a newer non-crossed cluster - CANCEL this one
+                        print(f"   ❌ {cluster['group']}: NOT CROSSED, newer pending signal exists - CANCELLED")
+                    else:
+                        # This is the most recent non-crossed cluster - KEEP it
+                        clusters_to_keep.append(idx)
+                        print(f"   ✅ {cluster['group']}: NOT CROSSED but most recent - KEEP")
+
+            # Filter to only clusters we want to keep
+            df_true_tops = df_true_tops.loc[clusters_to_keep].reset_index(drop=True)
+            print(f"✅ Final clusters after pending signal cancellation: {len(df_true_tops)}")
 
         print(f"🎯 Plotting {len(df_true_tops)} Creek Perdices clusters...")
 

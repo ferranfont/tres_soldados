@@ -1,7 +1,10 @@
 """
 Strategy 1: Creek Crossover Above VWAP
 =======================================
-Entry Signal: When creek perdices level > VWAP
+Entry Conditions:
+1. Creek perdices level > VWAP
+2. First TOP price (orange square) > VWAP
+
 Target: +5 points
 Stop Loss: -5 points
 Exit: End of day if position open
@@ -19,7 +22,6 @@ import webbrowser
 # Set UTF-8 encoding for Windows console
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
-
 sys.path.append(str(Path(__file__).parent.parent))
 from config import DATA_DIR, SYMBOL
 from plot_minute_data import plot_minute_data
@@ -31,7 +33,7 @@ from plot_minute_data import plot_minute_data
 BASE_DIR = Path(__file__).parent.parent
 
 # Parameters
-date_str = sys.argv[1] if len(sys.argv) > 1 else '2023_03_02'
+date_str = sys.argv[1] if len(sys.argv) > 1 else '2023_03_13'
 tolerance = sys.argv[2] if len(sys.argv) > 2 else '2.0'
 
 # Strategy parameters
@@ -40,10 +42,19 @@ STOP_POINTS = 5.0    # Stop loss in points
 POINT_VALUE = 50.0   # 1 ES point = $50 USD
 
 # File paths
-CREEK_CSV = BASE_DIR / 'outputs' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
-CANDLES_CSV = BASE_DIR / 'data' / f'es_1min_data_{date_str}.csv'
-OUTPUT_CSV = BASE_DIR / 'outputs' / f'trading_record_strat1_crossover_{date_str}.csv'
-OUTPUT_HTML = BASE_DIR / 'outputs' / f'trading_report_strat1_crossover_{date_str}.html'
+CREEK_CSV = BASE_DIR / 'outputs' / 'fractal_tops_and_bottoms' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
+CANDLES_CSV = BASE_DIR / 'data' / 'daily_subdata' / f'es_1min_data_{date_str}.csv'
+
+# Create tracking_records subfolder if it doesn't exist
+TRACKING_DIR = BASE_DIR / 'outputs' / 'tracking_records'
+TRACKING_DIR.mkdir(parents=True, exist_ok=True)
+
+# Create tablas_html subfolder for HTML reports
+TABLAS_HTML_DIR = BASE_DIR / 'outputs' / 'tablas_html'
+TABLAS_HTML_DIR.mkdir(parents=True, exist_ok=True)
+
+OUTPUT_CSV = TRACKING_DIR / f'trading_record_strat1_crossover_{date_str}.csv'
+OUTPUT_HTML = TABLAS_HTML_DIR / f'trading_report_strat1_crossover_{date_str}.html'
 
 # ====================================================
 # 📥 LOAD DATA
@@ -53,6 +64,9 @@ print("="*70)
 print("📈 STRATEGY 1: CREEK CROSSOVER ABOVE VWAP")
 print("="*70)
 print(f"Date: {date_str}")
+print(f"Entry Conditions:")
+print(f"  1. Creek > VWAP")
+print(f"  2. First TOP (orange square) > VWAP")
 print(f"Target: +{TARGET_POINTS} points")
 print(f"Stop Loss: -{STOP_POINTS} points")
 print("="*70)
@@ -90,6 +104,69 @@ vwap_col = 'ema' if 'ema' in df_candles.columns else 'vwap'
 print(f"✅ Loaded {len(df_candles)} candles (using {vwap_col} as VWAP)")
 
 # ====================================================
+# 🔄 FILTER PENDING SIGNALS
+# ====================================================
+
+print("\n" + "="*70)
+print("🔄 FILTERING PENDING SIGNALS")
+print("="*70)
+
+# Cancel older non-triggered clusters when newer one appears
+# Logic: If a cluster has NOT been crossed yet, and a newer cluster appears, cancel the older one
+print(f"📊 Total clusters loaded: {len(df_creek)}")
+
+clusters_to_trade = []
+
+for idx, cluster in df_creek.iterrows():
+    breakout_time = pd.to_datetime(cluster['breakout_timestamp'])
+    creek_price = cluster['creek_price']
+
+    # Check if breakout actually happened (price crossed creek)
+    breakout_candles = df_candles[df_candles['date'] == breakout_time]
+    if len(breakout_candles) > 0:
+        breakout_close = breakout_candles.iloc[0]['close']
+        is_crossed = breakout_close > creek_price
+    else:
+        is_crossed = False
+
+    if is_crossed:
+        # Cluster was CROSSED - always keep it
+        clusters_to_trade.append(idx)
+        print(f"   ✅ {cluster['group']}: CROSSED at {breakout_time} - KEEP FOR TRADING")
+    else:
+        # Cluster NOT crossed yet - check if there's a newer non-crossed cluster
+        newer_clusters = df_creek[df_creek['timestamp'] > cluster['timestamp']]
+
+        # Check if any newer cluster is also not crossed
+        has_newer_pending = False
+        for _, newer_cluster in newer_clusters.iterrows():
+            newer_breakout_time = pd.to_datetime(newer_cluster['breakout_timestamp'])
+            newer_creek_price = newer_cluster['creek_price']
+
+            newer_breakout_candles = df_candles[df_candles['date'] == newer_breakout_time]
+            if len(newer_breakout_candles) > 0:
+                newer_breakout_close = newer_breakout_candles.iloc[0]['close']
+                newer_is_crossed = newer_breakout_close > newer_creek_price
+            else:
+                newer_is_crossed = False
+
+            if not newer_is_crossed:
+                has_newer_pending = True
+                break
+
+        if has_newer_pending:
+            # There's a newer non-crossed cluster - CANCEL this one
+            print(f"   ❌ {cluster['group']}: NOT CROSSED, newer pending signal exists - CANCELLED")
+        else:
+            # This is the most recent non-crossed cluster - KEEP it
+            clusters_to_trade.append(idx)
+            print(f"   ⏳ {cluster['group']}: NOT CROSSED but most recent - KEEP AS PENDING")
+
+# Filter dataframe to only clusters we want to trade
+df_creek = df_creek.loc[clusters_to_trade].reset_index(drop=True)
+print(f"✅ Final clusters after pending signal cancellation: {len(df_creek)}")
+
+# ====================================================
 # 📊 TRADING LOGIC
 # ====================================================
 
@@ -103,35 +180,40 @@ trade_id = 1
 for idx, cluster in df_creek.iterrows():
     group = cluster['group']
     creek_price = cluster['creek_price']
+    first_top_price = cluster['price']  # Precio del primer TOP del cluster
+    first_top_time = cluster['timestamp']  # Momento cuando se forma el cuadradito naranja
     breakout_time = cluster['breakout_timestamp']
     is_master = cluster['mastercandle'] == 'master'
 
-    # Determine entry price: use master candle close if available, otherwise breakout candle close
-    if is_master and pd.notna(cluster['mastercandle_close']):
-        entry_price = cluster['mastercandle_close']
-        entry_type = "MASTER"
-    else:
-        # Get breakout candle close
-        breakout_candle = df_candles[df_candles['date'] == breakout_time]
-        if len(breakout_candle) == 0:
-            print(f"⚠️ {group}: No candle data at breakout time {breakout_time}")
-            continue
-        entry_price = breakout_candle.iloc[0]['close']
-        entry_type = "BREAKOUT"
+    # Get VWAP at FIRST TOP time (cuando se forma el cuadradito naranja, NO en el breakout)
+    vwap_at_first_top = df_candles[df_candles['date'] == first_top_time]
 
-    # Get VWAP at breakout time
-    vwap_at_breakout = df_candles[df_candles['date'] == breakout_time]
-
-    if len(vwap_at_breakout) == 0:
-        print(f"⚠️ {group}: No candle data at breakout time {breakout_time}")
+    if len(vwap_at_first_top) == 0:
+        print(f"⚠️ {group}: No candle data at first TOP time {first_top_time}")
         continue
 
-    vwap_value = vwap_at_breakout.iloc[0][vwap_col]
+    vwap_value = vwap_at_first_top.iloc[0][vwap_col]
 
-    # Check entry condition: creek > VWAP
-    if pd.notna(vwap_value) and creek_price > vwap_value:
+    # Check entry conditions:
+    # 1. creek > VWAP (at first TOP time)
+    # 2. first TOP price > VWAP (at first TOP time - cuando se forma el cuadradito naranja)
+    if pd.notna(vwap_value) and creek_price > vwap_value and first_top_price > vwap_value:
+        # Determine entry price: use master candle close if available, otherwise breakout candle close
+        if is_master and pd.notna(cluster['mastercandle_close']):
+            entry_price = cluster['mastercandle_close']
+            entry_type = "MASTER"
+        else:
+            # Get breakout candle close
+            breakout_candle = df_candles[df_candles['date'] == breakout_time]
+            if len(breakout_candle) == 0:
+                print(f"⚠️ {group}: No candle data at breakout time {breakout_time}")
+                continue
+            entry_price = breakout_candle.iloc[0]['close']
+            entry_type = "BREAKOUT"
+
         print(f"\n🟢 {group}: ENTRY SIGNAL ({entry_type})")
-        print(f"   Creek: ${creek_price:.2f} > VWAP: ${vwap_value:.2f}")
+        print(f"   Creek: ${creek_price:.2f} > VWAP: ${vwap_value:.2f} (at first TOP time {first_top_time})")
+        print(f"   First TOP: ${first_top_price:.2f} > VWAP: ${vwap_value:.2f} (at first TOP time {first_top_time})")
         print(f"   Entry Time: {breakout_time}")
 
         # Entry details
@@ -211,7 +293,19 @@ for idx, cluster in df_creek.iterrows():
 
         trade_id += 1
     else:
-        print(f"❌ {group}: NO ENTRY - Creek: ${creek_price:.2f} <= VWAP: ${vwap_value:.2f if pd.notna(vwap_value) else 'N/A'}")
+        # Determine which condition(s) failed
+        vwap_display = f"${vwap_value:.2f}" if pd.notna(vwap_value) else "N/A"
+        creek_vs_vwap = creek_price > vwap_value if pd.notna(vwap_value) else False
+        top_vs_vwap = first_top_price > vwap_value if pd.notna(vwap_value) else False
+
+        # Build failure message
+        failed_conditions = []
+        if not creek_vs_vwap:
+            failed_conditions.append(f"Creek ${creek_price:.2f} <= VWAP {vwap_display}")
+        if not top_vs_vwap:
+            failed_conditions.append(f"First TOP ${first_top_price:.2f} <= VWAP {vwap_display}")
+
+        print(f"❌ {group}: NO ENTRY - {' AND '.join(failed_conditions)}")
 
 # ====================================================
 # 💾 SAVE RESULTS

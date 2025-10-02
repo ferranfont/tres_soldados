@@ -26,9 +26,9 @@ tolerance = sys.argv[2] if len(sys.argv) > 2 else '2.0'
 UPPER_TAIL_MAX_PCT = float(sys.argv[3]) if len(sys.argv) > 3 else 20.0  # Default: 20%
 
 # File paths
-CREEK_CSV = BASE_DIR / 'outputs' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
-CANDLES_CSV = BASE_DIR / 'data' / f'es_1min_data_{date_str}.csv'
-OUTPUT_CSV = BASE_DIR / 'outputs' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
+CREEK_CSV = BASE_DIR / 'outputs' / 'fractal_tops_and_bottoms' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
+CANDLES_CSV = BASE_DIR / 'data' / 'daily_subdata' / f'es_1min_data_{date_str}.csv'
+OUTPUT_CSV = BASE_DIR / 'outputs' / 'fractal_tops_and_bottoms' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
 
 # ====================================================
 # 📥 LOAD DATA

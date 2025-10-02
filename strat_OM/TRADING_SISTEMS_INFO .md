@@ -32,13 +32,13 @@ python strat_OM/strat_1_crossover_creek.py 2023_03_02 2.0
 
 ### Prerequisites
 1. Creek perdices CSV must exist in `outputs/` folder
-2. Candle data must exist in `data/` folder
+2. Candle data must exist in `data/daily_subdata/` folder
 3. Data must have VWAP column (named 'ema' or 'vwap')
 
 ### Outputs
 
 #### Trading Record CSV
-Saved to: `outputs/trading_record_strat1_crossover_{date}.csv`
+Saved to: `outputs/tracking_records/trading_record_strat1_crossover_{date}.csv`
 
 Columns:
 - `trade_id`: Sequential trade number
@@ -52,12 +52,13 @@ Columns:
 - `target`: Target price level
 - `stop`: Stop loss price level
 - `pnl_points`: Profit/Loss in points
+- `pnl_usd`: Profit/Loss in USD ($50 per point)
 - `pnl_percent`: Profit/Loss percentage
 - `creek_price`: Creek level
 - `vwap_at_entry`: VWAP value at entry
 
 #### HTML Report
-Saved to: `outputs/trading_report_strat1_crossover_{date}.html`
+Saved to: `outputs/tracking_records/trading_report_strat1_crossover_{date}.html`
 
 Contains:
 - Performance summary statistics
@@ -83,9 +84,9 @@ Displays at end of execution:
 Total Trades: 9
 Winners: 5 | Losers: 4 | Breakeven: 0
 Win Rate: 55.6%
-Total P&L: +5.00 points
-Average Win: 5.00 points
-Average Loss: -5.00 points
+Total P&L: +5.00 points ($+250 USD)
+Average Win: 5.00 points ($250 USD)
+Average Loss: -5.00 points ($-250 USD)
 
 Exit Reasons:
   Take Profit: 5

@@ -7,6 +7,11 @@ import os
 import sys
 from pathlib import Path
 import talib
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+
 sys.path.append(str(Path(__file__).parent.parent))
 from config import DATA_DIR, SYMBOL
 from plot_minute_data import plot_minute_data
@@ -17,7 +22,7 @@ from plot_minute_data import plot_minute_data
 symbol = SYMBOL
 
 # Variable de fecha - cambiar esta fecha para extraer datos de otro día
-TARGET_DATE = '2023-03-10'  # Formato: YYYY-MM-DD
+TARGET_DATE = '2023-03-13'  # Formato: YYYY-MM-DD
 
 # VWAP period configuration
 VWAP_PERIOD = 100  # 100-period VWAP moving average
@@ -75,8 +80,12 @@ if len(df_filtered) > 0:
         print(f"🧹 Removed columns: {existing_columns_to_remove}")
 
     # Crear nombre de archivo para el día específico
+    # Guardar en el subfolder daily_subdata
+    daily_subdata_dir = os.path.join(directorio, 'daily_subdata')
+    os.makedirs(daily_subdata_dir, exist_ok=True)  # Crear carpeta si no existe
+
     output_filename = f'es_1min_data_{TARGET_DATE.replace("-", "_")}.csv'
-    output_path = os.path.join(directorio, output_filename)
+    output_path = os.path.join(daily_subdata_dir, output_filename)
 
     # Guardar CSV con datos del día específico
     df_filtered.to_csv(output_path, index=False)

@@ -23,7 +23,7 @@ from config import DATA_DIR, SYMBOL
 # ====================================================
 
 # Data file to analyze (must be in data/ folder) - create it before running this script
-DATA_FILE = 'es_1min_data_2023_03_02.csv'
+DATA_FILE = 'es_1min_data_2023_03_13.csv'
 # Zigzag detection sensitivity
 CHANGE_PCT = 0.10  # 0.10% minimum change,  try 0.05 for more sensitivity.
 # Creek perdices clustering tolerance
@@ -90,7 +90,7 @@ if __name__ == "__main__":
         if result.returncode == 0:
             # Build the correct filename with date and tolerance
             date_str = DATA_FILE.replace('es_1min_data_', '').replace('.csv', '')
-            creek_csv = f"outputs/true_tops_creek_perdices_{date_str}_tol_{TOLERANCE_PRICE}.csv"
+            creek_csv = f"outputs/fractal_tops_and_bottoms/true_tops_creek_perdices_{date_str}_tol_{TOLERANCE_PRICE}.csv"
 
             print(f"\n{'='*70}")
             print("SUCCESS: Creek Perdices detection completed")
@@ -149,8 +149,8 @@ if __name__ == "__main__":
             print("PLOTTING CHART WITH FRACTALS & CREEK PERDICES...")
             print(f"{'='*70}")
 
-            # Load data
-            file_path = os.path.join(str(DATA_DIR), DATA_FILE)
+            # Load data from daily_subdata subfolder
+            file_path = os.path.join(str(DATA_DIR), 'daily_subdata', DATA_FILE)
             df = pd.read_csv(file_path)
 
             # Normalize columns
