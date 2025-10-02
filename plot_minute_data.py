@@ -218,10 +218,10 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
             df_true_tops = df_true_tops.loc[valid_clusters].reset_index(drop=True)
             print(f"✅ Clusters meeting entry conditions (creek>VWAP AND first_top>VWAP): {len(df_true_tops)}")
 
-        # FILTER PENDING SIGNALS: Simplified rule
-        # Rule: If new cluster appears while previous is pending (not crossed), cancel previous
+        # FILTER PENDING SIGNALS: Cancel pending when new appears BEFORE it crosses
+        # Rule: Check if pending crossed BEFORE new cluster appeared
         if len(df_true_tops) > 0 and 'last_top_timestamp' in df_true_tops.columns:
-            print(f"\n🔄 Applying pending signal cancellation (simplified)...")
+            print(f"\n🔄 Applying pending signal cancellation...")
 
             # Sort by first TOP timestamp to process chronologically
             df_true_tops = df_true_tops.sort_values('timestamp').reset_index(drop=True)
@@ -229,31 +229,64 @@ def plot_minute_data(symbol, timeframe, df, fractals_csv=None, confirmed_tops_cs
             clusters_to_keep = []
             pending_idx = None
 
-            for idx, cluster in df_true_tops.iterrows():
+            # Process clusters sequentially, checking if pending crossed before next appears
+            for i in range(len(df_true_tops)):
+                cluster = df_true_tops.iloc[i]
+                idx = df_true_tops.index[i]
+
+                first_top_time = pd.to_datetime(cluster['timestamp'])
                 last_top_time = pd.to_datetime(cluster['last_top_timestamp'])
                 creek_price = cluster['creek_price']
 
-                # Check if this cluster was crossed
-                candles_after = df[df['date'] > last_top_time]
-                crossed = candles_after[candles_after['close'] > creek_price]
-                is_crossed = len(crossed) > 0
+                # If there's a pending, check if it should be cancelled by this new cluster
+                if pending_idx is not None:
+                    prev_cluster = df_true_tops.loc[pending_idx]
+                    prev_last_top = pd.to_datetime(prev_cluster['last_top_timestamp'])
+                    prev_creek = prev_cluster['creek_price']
 
-                if is_crossed:
-                    # Crossed cluster - always keep it
-                    first_cross = crossed.iloc[0]['date']
-                    clusters_to_keep.append(idx)
-                    pending_idx = None  # Clear pending
-                    print(f"   ✅ {cluster['group']}: CROSSED at {first_cross} - KEEP")
-                else:
-                    # NOT crossed - this is a pending signal
-                    if pending_idx is not None:
-                        # There was a previous pending - cancel it
-                        prev_cluster = df_true_tops.loc[pending_idx]
-                        print(f"   ❌ {prev_cluster['group']}: CANCELLED - {cluster['group']} appeared while pending")
+                    # RULE 1: If new cluster is at LOWER or EQUAL price, it will cross first - CANCEL pending immediately
+                    if creek_price <= prev_creek:
+                        print(f"   ❌ {prev_cluster['group']}: CANCELLED - {cluster['group']} at LOWER/EQUAL price (${creek_price:.2f} <= ${prev_creek:.2f}), will cross first")
                         if pending_idx in clusters_to_keep:
                             clusters_to_keep.remove(pending_idx)
+                        pending_idx = None
+                    else:
+                        # RULE 2: New cluster is HIGHER - check if pending crossed before new appeared
+                        candles_before_new = df[(df['date'] > prev_last_top) & (df['date'] < first_top_time)]
+                        pending_crossed = candles_before_new[candles_before_new['close'] > prev_creek]
 
-                    # This becomes the new pending
+                        if len(pending_crossed) > 0:
+                            # Pending crossed before new cluster's first TOP - keep pending
+                            first_cross = pending_crossed.iloc[0]['date']
+                            print(f"   ✅ {prev_cluster['group']}: CROSSED at {first_cross} (before {cluster['group']}) - KEEP")
+                            pending_idx = None  # Clear pending
+                        else:
+                            # Pending NOT crossed - cancel it
+                            print(f"   ❌ {prev_cluster['group']}: CANCELLED - {cluster['group']} appeared, not crossed yet")
+                            if pending_idx in clusters_to_keep:
+                                clusters_to_keep.remove(pending_idx)
+                            pending_idx = None
+
+                # Check if THIS cluster will cross before the NEXT cluster appears (or end of day if last)
+                if i < len(df_true_tops) - 1:
+                    next_cluster = df_true_tops.iloc[i + 1]
+                    next_first_top = pd.to_datetime(next_cluster['timestamp'])
+                    # Check if crosses BEFORE next cluster appears
+                    candles_until_next = df[(df['date'] > last_top_time) & (df['date'] < next_first_top)]
+                    crossed = candles_until_next[candles_until_next['close'] > creek_price]
+                else:
+                    # Last cluster - check all remaining candles
+                    candles_until_next = df[df['date'] > last_top_time]
+                    crossed = candles_until_next[candles_until_next['close'] > creek_price]
+
+                if len(crossed) > 0:
+                    # This cluster crossed before next appeared - keep it
+                    first_cross = crossed.iloc[0]['date']
+                    clusters_to_keep.append(idx)
+                    print(f"   ✅ {cluster['group']}: CROSSED at {first_cross} - KEEP")
+                    pending_idx = None  # Not pending anymore
+                else:
+                    # NOT crossed before next - becomes new pending
                     pending_idx = idx
                     clusters_to_keep.append(idx)
                     print(f"   ⏳ {cluster['group']}: PENDING")

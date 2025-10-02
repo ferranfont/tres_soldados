@@ -27,20 +27,31 @@ from config import DATA_DIR, SYMBOL
 from plot_minute_data import plot_minute_data
 
 # ====================================================
-
 # 📊 CONFIGURATION
 # ====================================================
 
 BASE_DIR = Path(__file__).parent.parent
 
-# Parameters
-date_str = sys.argv[1] if len(sys.argv) > 1 else '2023_03_13'
-tolerance = sys.argv[2] if len(sys.argv) > 2 else '2.0'
+# ====================================================
+# ⚙️ USER CONFIGURATION - CHANGE THESE PARAMETERS
+# ====================================================
+
+# Date to analyze (format: YYYY_MM_DD)
+DATE = '2023_03_13'  # Change this to analyze different dates
+
+# Tolerance for creek perdices clustering (in points)
+TOLERANCE = 2.0
 
 # Strategy parameters
 TARGET_POINTS = 5.0  # Target profit in points
 STOP_POINTS = 5.0    # Stop loss in points
 POINT_VALUE = 50.0   # 1 ES point = $50 USD
+
+# ====================================================
+# Command line arguments override (optional)
+# ====================================================
+date_str = sys.argv[1] if len(sys.argv) > 1 else DATE
+tolerance = str(sys.argv[2]) if len(sys.argv) > 2 else str(TOLERANCE)
 
 # File paths
 CREEK_CSV = BASE_DIR / 'outputs' / 'fractal_tops_and_bottoms' / f'true_tops_creek_perdices_{date_str}_tol_{tolerance}.csv'
@@ -109,50 +120,108 @@ print(f"✅ Loaded {len(df_candles)} candles (using {vwap_col} as VWAP)")
 # ====================================================
 
 print("\n" + "="*70)
-print("🔄 FILTERING PENDING SIGNALS")
+print("🔄 STEP 1: VWAP FILTER")
 print("="*70)
 
-# Simplified pending signal cancellation
-# Rule: If new cluster appears while previous is pending (not crossed), cancel previous
 print(f"📊 Total clusters loaded: {len(df_creek)}")
 
 # Sort by first TOP timestamp to process chronologically
 df_creek = df_creek.sort_values('timestamp').reset_index(drop=True)
 
+# STEP 1: Filter by VWAP conditions FIRST
+valid_vwap_indices = []
+for idx, cluster in df_creek.iterrows():
+    creek_price = cluster['creek_price']
+    first_top_price = cluster['price']
+    first_top_time = pd.to_datetime(cluster['timestamp'])
+
+    # Get VWAP at FIRST TOP time
+    vwap_at_first_top = df_candles[df_candles['date'] == first_top_time]
+
+    if len(vwap_at_first_top) > 0:
+        vwap_value = vwap_at_first_top.iloc[0]['ema']
+
+        # Both creek AND first TOP must be above VWAP
+        if pd.notna(vwap_value) and creek_price > vwap_value and first_top_price > vwap_value:
+            valid_vwap_indices.append(idx)
+
+print(f"✅ Clusters passing VWAP filter: {len(valid_vwap_indices)}")
+
+# Filter to only VWAP-valid clusters
+df_creek_vwap_filtered = df_creek.loc[valid_vwap_indices].reset_index(drop=True)
+
+print("\n" + "="*70)
+print("🔄 STEP 2: PENDING CANCELLATION (only on VWAP-valid clusters)")
+print("="*70)
+
 clusters_to_trade = []
 pending_idx = None
 
-for idx, cluster in df_creek.iterrows():
+# Need to process clusters sequentially, checking if pending crossed before next appears
+for i in range(len(df_creek_vwap_filtered)):
+    cluster = df_creek_vwap_filtered.iloc[i]
+    idx = df_creek_vwap_filtered.index[i]
+
+    first_top_time = pd.to_datetime(cluster['timestamp'])
     last_top_time = pd.to_datetime(cluster['last_top_timestamp'])
     creek_price = cluster['creek_price']
 
-    # Check if this cluster was crossed
-    candles_after = df_candles[df_candles['date'] > last_top_time]
-    crossed = candles_after[candles_after['close'] > creek_price]
-    is_crossed = len(crossed) > 0
+    # If there's a pending, check if it should be cancelled by this new cluster
+    if pending_idx is not None:
+        prev_cluster = df_creek_vwap_filtered.loc[pending_idx]
+        prev_last_top = pd.to_datetime(prev_cluster['last_top_timestamp'])
+        prev_creek = prev_cluster['creek_price']
 
-    if is_crossed:
-        # Crossed cluster - always keep it
-        first_cross = crossed.iloc[0]['date']
-        clusters_to_trade.append(idx)
-        pending_idx = None  # Clear pending
-        print(f"   ✅ {cluster['group']}: CROSSED at {first_cross} - KEEP FOR TRADING")
-    else:
-        # NOT crossed - this is a pending signal
-        if pending_idx is not None:
-            # There was a previous pending - cancel it
-            prev_cluster = df_creek.loc[pending_idx]
-            print(f"   ❌ {prev_cluster['group']}: CANCELLED - {cluster['group']} appeared while pending")
+        # RULE 1: If new cluster is at LOWER or EQUAL price, it will cross first - CANCEL pending immediately
+        if creek_price <= prev_creek:
+            print(f"   ❌ {prev_cluster['group']}: CANCELLED - {cluster['group']} at LOWER/EQUAL price (${creek_price:.2f} <= ${prev_creek:.2f}), will cross first")
             if pending_idx in clusters_to_trade:
                 clusters_to_trade.remove(pending_idx)
+            pending_idx = None
+        else:
+            # RULE 2: New cluster is HIGHER - check if pending crossed before new appeared
+            candles_before_new = df_candles[(df_candles['date'] > prev_last_top) & (df_candles['date'] < first_top_time)]
+            pending_crossed = candles_before_new[candles_before_new['close'] > prev_creek]
 
-        # This becomes the new pending
+            if len(pending_crossed) > 0:
+                # Pending crossed before new cluster's first TOP - keep pending
+                first_cross = pending_crossed.iloc[0]['date']
+                print(f"   ✅ {prev_cluster['group']}: CROSSED at {first_cross} BEFORE {cluster['group']} first TOP ({first_top_time}) - KEEP")
+                pending_idx = None  # Clear pending
+            else:
+                # Pending NOT crossed before new first TOP - CANCEL it
+                print(f"   ❌ {prev_cluster['group']}: CANCELLED - {cluster['group']} first TOP appeared ({first_top_time}), pending not crossed yet")
+                if pending_idx in clusters_to_trade:
+                    clusters_to_trade.remove(pending_idx)
+                pending_idx = None
+
+    # Check if THIS cluster will cross before the NEXT cluster appears (or end of day if last)
+    # Get the next cluster's first TOP time (if exists)
+    if i < len(df_creek_vwap_filtered) - 1:
+        next_cluster = df_creek_vwap_filtered.iloc[i + 1]
+        next_first_top = pd.to_datetime(next_cluster['timestamp'])
+        # Check if crosses BEFORE next cluster appears
+        candles_until_next = df_candles[(df_candles['date'] > last_top_time) & (df_candles['date'] < next_first_top)]
+        crossed = candles_until_next[candles_until_next['close'] > creek_price]
+    else:
+        # Last cluster - check all remaining candles
+        candles_until_next = df_candles[df_candles['date'] > last_top_time]
+        crossed = candles_until_next[candles_until_next['close'] > creek_price]
+
+    if len(crossed) > 0:
+        # This cluster crossed before next appeared - keep it
+        first_cross = crossed.iloc[0]['date']
+        clusters_to_trade.append(idx)
+        print(f"   ✅ {cluster['group']}: CROSSED at {first_cross} - KEEP FOR TRADING")
+        pending_idx = None  # Not pending anymore
+    else:
+        # NOT crossed before next - becomes new pending (will be evaluated when next arrives)
         pending_idx = idx
         clusters_to_trade.append(idx)
         print(f"   ⏳ {cluster['group']}: PENDING")
 
 # Filter dataframe to only clusters we want to trade
-df_creek = df_creek.loc[clusters_to_trade].reset_index(drop=True)
+df_creek = df_creek_vwap_filtered.loc[clusters_to_trade].reset_index(drop=True)
 print(f"✅ Final clusters after cancellation: {len(df_creek)}")
 
 # ====================================================
