@@ -112,79 +112,48 @@ print("\n" + "="*70)
 print("🔄 FILTERING PENDING SIGNALS")
 print("="*70)
 
-# Sequential temporal processing: cancel pending signals when new one appears
-# Process clusters chronologically and track which one is currently pending
+# Simplified pending signal cancellation
+# Rule: If new cluster appears while previous is pending (not crossed), cancel previous
 print(f"📊 Total clusters loaded: {len(df_creek)}")
 
 # Sort by first TOP timestamp to process chronologically
 df_creek = df_creek.sort_values('timestamp').reset_index(drop=True)
 
 clusters_to_trade = []
-pending_cluster_idx = None  # Track current pending signal
+pending_idx = None
 
 for idx, cluster in df_creek.iterrows():
-    first_top_time = pd.to_datetime(cluster['timestamp'])
     last_top_time = pd.to_datetime(cluster['last_top_timestamp'])
     creek_price = cluster['creek_price']
 
-    # Check if ANY candle AFTER last TOP closed above creek
-    candles_after_last_top = df_candles[df_candles['date'] > last_top_time]
-    crossed_candles = candles_after_last_top[candles_after_last_top['close'] > creek_price]
-    is_crossed = len(crossed_candles) > 0
+    # Check if this cluster was crossed
+    candles_after = df_candles[df_candles['date'] > last_top_time]
+    crossed = candles_after[candles_after['close'] > creek_price]
+    is_crossed = len(crossed) > 0
 
     if is_crossed:
-        first_cross_time = crossed_candles.iloc[0]['date']
-
-        # If there was a pending signal, check if this new signal appeared BEFORE pending crossed
-        if pending_cluster_idx is not None:
-            pending_cluster = df_creek.loc[pending_cluster_idx]
-
-            # If new signal's first TOP appeared BEFORE pending was crossed, cancel pending
-            if first_top_time < first_cross_time:
-                print(f"   ❌ {pending_cluster['group']}: CANCELLED - {cluster['group']} appeared at {first_top_time} before cross at {first_cross_time}")
-                if pending_cluster_idx in clusters_to_trade:
-                    clusters_to_trade.remove(pending_cluster_idx)
-
-        # This cluster crossed - keep it and clear pending
+        # Crossed cluster - always keep it
+        first_cross = crossed.iloc[0]['date']
         clusters_to_trade.append(idx)
-        pending_cluster_idx = None
-        print(f"   ✅ {cluster['group']}: CROSSED at {first_cross_time} - KEEP FOR TRADING")
+        pending_idx = None  # Clear pending
+        print(f"   ✅ {cluster['group']}: CROSSED at {first_cross} - KEEP FOR TRADING")
     else:
-        # Cluster NOT crossed yet
-        if pending_cluster_idx is not None:
-            pending_cluster = df_creek.loc[pending_cluster_idx]
-            pending_creek_price = pending_cluster['creek_price']
-            pending_last_top_time = pd.to_datetime(pending_cluster['last_top_timestamp'])
+        # NOT crossed - this is a pending signal
+        if pending_idx is not None:
+            # There was a previous pending - cancel it
+            prev_cluster = df_creek.loc[pending_idx]
+            print(f"   ❌ {prev_cluster['group']}: CANCELLED - {cluster['group']} appeared while pending")
+            if pending_idx in clusters_to_trade:
+                clusters_to_trade.remove(pending_idx)
 
-            # Check if pending was crossed BEFORE this new signal appeared
-            candles_between = df_candles[(df_candles['date'] > pending_last_top_time) & (df_candles['date'] <= first_top_time)]
-            pending_crossed_before_new = len(candles_between[candles_between['close'] > pending_creek_price]) > 0
-
-            if pending_crossed_before_new:
-                # Pending was crossed before new signal - keep pending and don't replace
-                print(f"   ✅ {pending_cluster['group']}: Already CROSSED before {cluster['group']} appeared - KEEP BOTH")
-                # Add this new cluster as well
-                clusters_to_trade.append(idx)
-                # Note: pending_cluster_idx stays the same, but we're keeping both
-            else:
-                # Pending NOT crossed before new signal - cancel it
-                print(f"   ❌ {pending_cluster['group']}: CANCELLED - {cluster['group']} appeared, pending not crossed")
-                if pending_cluster_idx in clusters_to_trade:
-                    clusters_to_trade.remove(pending_cluster_idx)
-
-                # This becomes the new pending signal
-                pending_cluster_idx = idx
-                clusters_to_trade.append(idx)
-                print(f"   ⏳ {cluster['group']}: NEW PENDING at {first_top_time}")
-        else:
-            # No pending signal - this becomes pending
-            pending_cluster_idx = idx
-            clusters_to_trade.append(idx)
-            print(f"   ⏳ {cluster['group']}: PENDING at {first_top_time}")
+        # This becomes the new pending
+        pending_idx = idx
+        clusters_to_trade.append(idx)
+        print(f"   ⏳ {cluster['group']}: PENDING")
 
 # Filter dataframe to only clusters we want to trade
 df_creek = df_creek.loc[clusters_to_trade].reset_index(drop=True)
-print(f"✅ Final clusters after sequential cancellation: {len(df_creek)}")
+print(f"✅ Final clusters after cancellation: {len(df_creek)}")
 
 # ====================================================
 # 📊 TRADING LOGIC
